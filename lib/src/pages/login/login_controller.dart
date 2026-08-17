@@ -13,6 +13,13 @@ class LoginController extends GetxController {
   final isLoading = false.obs;
   final _box = GetStorage();
   final UsersProvider usersProvider = UsersProvider();
+  bool _handledArguments = false;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _applyRouteArguments();
+  }
 
   @override
   void onClose() {
@@ -23,6 +30,31 @@ class LoginController extends GetxController {
 
   void goToRegisterPage() => Get.toNamed('/register');
   void goToRolesPage() => Get.offNamedUntil('/roles', (route) => false);
+
+  void _applyRouteArguments() {
+    if (_handledArguments) return;
+    _handledArguments = true;
+    final args = Get.arguments;
+    if (args is! Map) return;
+
+    final email = args['email']?.toString().trim() ?? '';
+    final message = args['message']?.toString().trim() ?? '';
+
+    if (email.isNotEmpty) {
+      emailController.text = email;
+      passwordController.clear();
+    }
+
+    if (message.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Get.snackbar(
+          'Registro completado',
+          message,
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      });
+    }
+  }
 
   Future<void> login() async {
     final email = emailController.text.trim();

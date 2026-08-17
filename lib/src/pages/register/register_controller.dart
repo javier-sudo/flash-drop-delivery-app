@@ -6,8 +6,8 @@ import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:proyecto_app_delivery_gessof/src/data/demo_data.dart';
 import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/login/login_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
-import 'package:sn_progress_dialog/progress_dialog.dart';
 
 class RegisterController extends GetxController {
   final emailController = TextEditingController();
@@ -47,21 +47,17 @@ class RegisterController extends GetxController {
 
     if (!isValidForm(email, name, lastname, phone, password, confirm)) return;
 
-    final progressDialog = ProgressDialog(context: context);
-    progressDialog.show(max: 100, msg: 'Creando perfil demo...');
-
     try {
       isLoading.value = true;
 
       if (Environment.useDemoMode) {
         await Future.delayed(const Duration(milliseconds: 600));
-        final demoUser = DemoData.user(name: name, email: email, phone: phone)
-          ..['lastName'] = lastname
-          ..['rut'] = rut.isEmpty ? '12.345.678-9' : rut;
-
-        await _box.write('user', demoUser);
-        await _box.write('token', demoUser['session_token']);
-        Get.offAllNamed('/roles');
+        final demoUser = DemoData.user(name: name, email: email, phone: phone);
+        demoUser['lastName'] = lastname;
+        demoUser['rut'] = rut.isEmpty ? '12.345.678-9' : rut;
+        await _box.remove('user');
+        await _box.remove('token');
+        _goBackToLogin(email, 'Perfil demo creado. Ahora inicia sesion.');
         return;
       }
 
@@ -76,21 +72,12 @@ class RegisterController extends GetxController {
       );
 
       if (registerResp.success == true) {
-        final loginResp = await usersProvider.login(
-          login: email,
-          password: password,
+        await _box.remove('user');
+        await _box.remove('token');
+        _goBackToLogin(
+          email,
+          'Cuenta creada correctamente. Ahora inicia sesion.',
         );
-        if (loginResp.success == true) {
-          final map = (loginResp.data is Map)
-              ? Map<String, dynamic>.from(loginResp.data)
-              : <String, dynamic>{};
-          await _box.write('user', map);
-          final token = map['token'] ?? map['session_token'];
-          if (token != null) await _box.write('token', token);
-          Get.offAllNamed('/roles');
-        } else {
-          Get.offAllNamed('/');
-        }
       } else {
         Get.snackbar(
           'Registro fallido',
@@ -101,8 +88,14 @@ class RegisterController extends GetxController {
       Get.snackbar('Error', 'No se pudo conectar al backend: $e');
     } finally {
       isLoading.value = false;
-      progressDialog.close();
     }
+  }
+
+  void _goBackToLogin(String email, String message) {
+    if (Get.isRegistered<LoginController>()) {
+      Get.delete<LoginController>(force: true);
+    }
+    Get.offAllNamed('/', arguments: {'email': email, 'message': message});
   }
 
   bool isValidForm(
