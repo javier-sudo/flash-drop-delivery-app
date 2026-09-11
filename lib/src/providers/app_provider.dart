@@ -49,10 +49,13 @@ class AppProvider {
   }
 
   Future<List<Map<String, dynamic>>> getOrders({int? userId}) async {
-    final uri = Uri.parse(
-      '$_base/api/orders',
-    ).replace(queryParameters: userId == null ? null : {'user_id': '$userId'});
-    final res = await http.get(uri, headers: _headers);
+    // Orders currently exposes user_id as UUID, while Auth emits a numeric
+    // userId. The authenticated identity is already carried by the JWT, so
+    // avoid sending an incompatible query parameter from the mobile client.
+    final res = await http.get(
+      Uri.parse('$_base/api/orders'),
+      headers: _headers,
+    );
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
