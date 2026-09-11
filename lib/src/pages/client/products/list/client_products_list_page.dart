@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
@@ -80,11 +82,12 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
   }
 
   List<String> get categories {
-    final names = products
-        .map((p) => '${p['categoryName'] ?? 'Sin categoría'}')
-        .toSet()
-        .toList()
-      ..sort();
+    final names =
+        products
+            .map((p) => '${p['categoryName'] ?? 'Sin categoría'}')
+            .toSet()
+            .toList()
+          ..sort();
     return ['Todos', ...names];
   }
 
@@ -94,7 +97,8 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
       final name = '${product['name'] ?? ''}'.toLowerCase();
       final restaurant = '${product['restaurantName'] ?? ''}'.toLowerCase();
       final category = '${product['categoryName'] ?? 'Sin categoría'}';
-      final matchesText = query.isEmpty ||
+      final matchesText =
+          query.isEmpty ||
           name.contains(query) ||
           restaurant.contains(query) ||
           category.toLowerCase().contains(query);
@@ -110,11 +114,10 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
   int get cartCount => cart.values.fold(0, (sum, q) => sum + q);
 
   double get cartSubtotal => cartProducts.fold<double>(
-        0,
-        (sum, p) =>
-            sum +
-            (double.tryParse('${p['price']}') ?? 0) * (cart[p['id']] ?? 0),
-      );
+    0,
+    (sum, p) =>
+        sum + (double.tryParse('${p['price']}') ?? 0) * (cart[p['id']] ?? 0),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -196,10 +199,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
-        _AddressBar(
-          address: _selectedAddress,
-          onTap: _openAddressSelector,
-        ),
+        _AddressBar(address: _selectedAddress, onTap: _openAddressSelector),
         const SizedBox(height: 10),
         _HeroSearch(controller: searchController, total: products.length),
         const SizedBox(height: 16),
@@ -214,10 +214,9 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           children: [
             Text(
               'Productos disponibles',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w900),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
             ),
             Text('${filtered.length} items'),
           ],
@@ -322,9 +321,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            Text(
-                              '${cartProducts.first['restaurantName']}',
-                            ),
+                            Text('${cartProducts.first['restaurantName']}'),
                           ],
                         ),
                       ),
@@ -415,8 +412,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                       onPressed: placingOrder
                           ? null
                           : () async {
-                              final address =
-                                  addressController.text.trim();
+                              final address = addressController.text.trim();
                               if (address.length < 6) {
                                 Get.snackbar(
                                   'Dirección incompleta',
@@ -435,8 +431,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                                 '${cartProducts.first['restaurantAddress'] ?? cartProducts.first['restaurantName']}',
                                 address,
                               );
-                              final response =
-                                  await appProvider.createOrder(
+                              final response = await appProvider.createOrder(
                                 items: cartProducts
                                     .map(
                                       (p) => {
@@ -482,13 +477,10 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                                   snackPosition: SnackPosition.BOTTOM,
                                 );
                               } else {
-                                sheetSetState(
-                                  () => placingOrder = false,
-                                );
+                                sheetSetState(() => placingOrder = false);
                                 Get.snackbar(
                                   'No se pudo crear',
-                                  response.message ??
-                                      'Intenta nuevamente.',
+                                  response.message ?? 'Intenta nuevamente.',
                                 );
                               }
                             },
@@ -496,9 +488,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.shopping_bag_outlined),
                       label: Text(
@@ -531,8 +521,14 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     String deliveryAddress,
   ) async {
     try {
-      final pickup = await locationFromAddress('$pickupAddress, Chile');
-      final delivery = await locationFromAddress('$deliveryAddress, Chile');
+      // Geocoding is a convenience for the estimate, never a reason to leave
+      // checkout blocked when the third-party geocoder is unavailable.
+      final pickup = await locationFromAddress(
+        '$pickupAddress, Chile',
+      ).timeout(const Duration(seconds: 5));
+      final delivery = await locationFromAddress(
+        '$deliveryAddress, Chile',
+      ).timeout(const Duration(seconds: 5));
       if (pickup.isNotEmpty && delivery.isNotEmpty) {
         const calculator = Distance();
         final directKm = calculator.as(
@@ -541,8 +537,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           LatLng(delivery.first.latitude, delivery.first.longitude),
         );
         final roadKm = (directKm * 1.25).clamp(0.5, 80.0).toDouble();
-        final minutes =
-            ((roadKm / 22) * 60 + 8).round().clamp(10, 180);
+        final minutes = ((roadKm / 22) * 60 + 8).round().clamp(10, 180);
         return (double.parse(roadKm.toStringAsFixed(2)), minutes);
       }
     } catch (_) {}
@@ -708,10 +703,7 @@ class _ProductCard extends StatelessWidget {
             IconButton(
               tooltip: 'Agregar al pedido',
               onPressed: onAdd,
-              icon: const Icon(
-                Icons.add_circle,
-                color: Color(0xFFFFB300),
-              ),
+              icon: const Icon(Icons.add_circle, color: Color(0xFFFFB300)),
             )
           else
             _QuantityStepper(
@@ -840,8 +832,7 @@ class _CartItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lineTotal =
-        (double.tryParse('${product['price']}') ?? 0) * quantity;
+    final lineTotal = (double.tryParse('${product['price']}') ?? 0) * quantity;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -913,15 +904,13 @@ class _ProductImage extends StatelessWidget {
       child = Image.network(
         image,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            const Icon(Icons.fastfood_outlined),
+        errorBuilder: (_, __, ___) => const Icon(Icons.fastfood_outlined),
       );
     } else if (image.startsWith('assets/')) {
       child = Image.asset(
         image,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            const Icon(Icons.fastfood_outlined),
+        errorBuilder: (_, __, ___) => const Icon(Icons.fastfood_outlined),
       );
     }
 
@@ -1012,11 +1001,7 @@ class _AddressBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(
-              Icons.location_on,
-              color: Color(0xFFFFB300),
-              size: 22,
-            ),
+            const Icon(Icons.location_on, color: Color(0xFFFFB300), size: 22),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -1024,10 +1009,7 @@ class _AddressBar extends StatelessWidget {
                 children: [
                   const Text(
                     'Entregar en',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF9EA5AD),
-                    ),
+                    style: TextStyle(fontSize: 11, color: Color(0xFF9EA5AD)),
                   ),
                   Text(
                     hasAddress ? address : '¿A dónde entregamos?',
