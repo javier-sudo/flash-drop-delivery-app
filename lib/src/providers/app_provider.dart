@@ -20,7 +20,11 @@ class AppProvider {
   dynamic _body(http.Response response) {
     final decoded = jsonDecode(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(decoded is Map ? decoded['message'] ?? 'Error HTTP ${response.statusCode}' : 'Error HTTP ${response.statusCode}');
+      throw Exception(
+        decoded is Map
+            ? decoded['message'] ?? 'Error HTTP ${response.statusCode}'
+            : 'Error HTTP ${response.statusCode}',
+      );
     }
     return decoded is Map<String, dynamic> && decoded.containsKey('data')
         ? decoded['data']
@@ -29,7 +33,19 @@ class AppProvider {
 
   Future<List<Map<String, dynamic>>> getProducts() async {
     final res = await http.get(Uri.parse('$_base/catalog/products'));
-    return List<Map<String, dynamic>>.from(_body(res) ?? []);
+    return List<Map<String, dynamic>>.from(_body(res) ?? []).map((product) {
+      // Catalog exposes the IDs for these relations; the mobile UI also needs a
+      // readable fallback while Catalog does not include their display names.
+      return {
+        ...product,
+        'categoryName':
+            product['categoryName'] ??
+            'Categoria ${product['categoryId'] ?? ''}',
+        'restaurantName':
+            product['restaurantName'] ??
+            'Restaurante ${product['restaurantId'] ?? ''}',
+      };
+    }).toList();
   }
 
   Future<List<Map<String, dynamic>>> getOrders({int? userId}) async {
@@ -41,7 +57,10 @@ class AppProvider {
   }
 
   Future<List<Map<String, dynamic>>> getDeliveryRoutes() async {
-    final res = await http.get(Uri.parse('$_base/api/delivery/routes'), headers: _headers);
+    final res = await http.get(
+      Uri.parse('$_base/api/delivery/routes'),
+      headers: _headers,
+    );
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
@@ -72,12 +91,15 @@ class AppProvider {
     return _response(res);
   }
 
-  Future<Map<String, dynamic>> getOrderDetail(int orderId) async {
-    final res = await http.get(Uri.parse('$_base/api/orders/$orderId'), headers: _headers);
+  Future<Map<String, dynamic>> getOrderDetail(Object orderId) async {
+    final res = await http.get(
+      Uri.parse('$_base/api/orders/$orderId'),
+      headers: _headers,
+    );
     return Map<String, dynamic>.from(_body(res) ?? {});
   }
 
-  Future<ResponseApi> updateOrderStatus(int orderId, String status) async {
+  Future<ResponseApi> updateOrderStatus(Object orderId, String status) async {
     final res = await http.put(
       Uri.parse('$_base/api/orders/$orderId/status'),
       headers: _headers,
@@ -98,17 +120,34 @@ class AppProvider {
     return _response(res);
   }
 
+  Future<ResponseApi> updateRouteStatus(int routeId, String status) async {
+    final res = await http.put(
+      Uri.parse('$_base/api/delivery/routes/$routeId/status'),
+      headers: _headers,
+      body: jsonEncode({'status': status}),
+    );
+    return _response(res);
+  }
+
   ResponseApi _response(http.Response response) {
     try {
       final decoded = jsonDecode(response.body);
-      final body = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+      final body = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
       return ResponseApi(
-        success: response.statusCode >= 200 && response.statusCode < 300 && body['success'] != false,
+        success:
+            response.statusCode >= 200 &&
+            response.statusCode < 300 &&
+            body['success'] != false,
         message: body['message']?.toString(),
         data: body['data'],
       );
     } catch (_) {
-      return ResponseApi(success: false, message: 'Respuesta invalida del servidor');
+      return ResponseApi(
+        success: false,
+        message: 'Respuesta invalida del servidor',
+      );
     }
   }
 }
