@@ -274,6 +274,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     }
 
     final addressController = TextEditingController(text: prefillAddress());
+    final addressFieldKey = GlobalKey();
     var paymentMethod = 'Efectivo';
     var placingOrder = false;
     var orderConfirmed = false;
@@ -284,221 +285,230 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
       useSafeArea: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, sheetSetState) {
-          // Keyboard-aware height: shrinks when keyboard appears so content
-          // stays visible above the keyboard without squishing the layout.
+          // Keep the checkout height stable and lift it above the keyboard.
+          // The cart list remains scrollable on smaller phone screens.
           final keyboard = MediaQuery.viewInsetsOf(context).bottom;
-          final maxHeight =
-              MediaQuery.of(context).size.height * 0.88 - keyboard;
+          final maxHeight = MediaQuery.of(context).size.height * 0.88;
 
-          return SizedBox(
-            height: maxHeight,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 42,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD6D8DC),
-                        borderRadius: BorderRadius.circular(2),
+          return AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: keyboard),
+            child: SizedBox(
+              height: maxHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD6D8DC),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Tu pedido',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Text('${cartProducts.first['restaurantName']}'),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Cerrar',
-                        onPressed: () => Navigator.pop(sheetContext),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: ListView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
+                    const SizedBox(height: 18),
+                    Row(
                       children: [
-                        ...cartProducts.map(
-                          (product) => _CartItem(
-                            product: product,
-                            quantity: cart[product['id']] ?? 0,
-                            onAdd: () {
-                              _changeQuantity(product, 1);
-                              sheetSetState(() {});
-                            },
-                            onRemove: () {
-                              _changeQuantity(product, -1);
-                              if (cart.isEmpty) {
-                                Navigator.pop(sheetContext);
-                              } else {
-                                sheetSetState(() {});
-                              }
-                            },
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Tu pedido',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              Text('${cartProducts.first['restaurantName']}'),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: addressController,
-                          textInputAction: TextInputAction.done,
-                          decoration: const InputDecoration(
-                            labelText: 'Dirección de entrega',
-                            prefixIcon: Icon(Icons.location_on_outlined),
-                            border: OutlineInputBorder(),
-                          ),
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(Icons.close),
                         ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: paymentMethod,
-                          decoration: const InputDecoration(
-                            labelText: 'Forma de pago',
-                            prefixIcon: Icon(Icons.payments_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'Efectivo',
-                              child: Text('Efectivo'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Tarjeta',
-                              child: Text('Tarjeta al recibir'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Transferencia',
-                              child: Text('Transferencia'),
-                            ),
-                          ],
-                          onChanged: (value) =>
-                              paymentMethod = value ?? 'Efectivo',
-                        ),
-                        const SizedBox(height: 18),
-                        _PriceRow(label: 'Subtotal', value: cartSubtotal),
-                        const SizedBox(height: 8),
-                        const _PriceRow(label: 'Envío', value: 2500),
-                        const Divider(height: 24),
-                        _PriceRow(
-                          label: 'Total',
-                          value: cartSubtotal + 2500,
-                          strong: true,
-                        ),
-                        const SizedBox(height: 8),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: placingOrder
-                          ? null
-                          : () async {
-                              final address = addressController.text.trim();
-                              if (address.length < 6) {
-                                Get.snackbar(
-                                  'Dirección incompleta',
-                                  'Indica calle, número y comuna.',
-                                );
-                                return;
-                              }
-                              sheetSetState(() => placingOrder = true);
-                              final rawUser = box.read('user');
-                              final user = rawUser == null
-                                  ? null
-                                  : User.fromJson(
-                                      Map<String, dynamic>.from(rawUser),
-                                    );
-                              final estimate = await _estimateRoute(
-                                '${cartProducts.first['restaurantAddress'] ?? cartProducts.first['restaurantName']}',
-                                address,
-                              );
-                              final response = await appProvider.createOrder(
-                                items: cartProducts
-                                    .map(
-                                      (p) => {
-                                        'product_id': p['id'],
-                                        'quantity': cart[p['id']],
-                                      },
-                                    )
-                                    .toList(),
-                                address: address,
-                                paymentMethod: paymentMethod,
-                                userId: user?.id,
-                                distanceKm: estimate.$1,
-                                estimatedMinutes: estimate.$2,
-                              );
-                              if (!mounted) return;
-                              if (response.success == true) {
-                                await box.write('deliveryAddress', address);
-                                // Keep new address key in sync
-                                final raw = box.read('delivery_address');
-                                if (raw is Map) {
-                                  final updated = Map<String, dynamic>.from(raw)
-                                    ..['address'] = address;
-                                  await box.write('delivery_address', updated);
-                                } else {
-                                  await box.write('delivery_address', {
-                                    'address': address,
-                                    'label': null,
-                                    'lat': null,
-                                    'lng': null,
-                                  });
-                                }
-                                // Mark confirmed and close the modal BEFORE
-                                // calling setState on the parent to avoid
-                                // corrupting the widget tree while the sheet
-                                // overlay is still alive.
-                                orderConfirmed = true;
-                                if (sheetContext.mounted) {
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        children: [
+                          ...cartProducts.map(
+                            (product) => _CartItem(
+                              product: product,
+                              quantity: cart[product['id']] ?? 0,
+                              onAdd: () {
+                                _changeQuantity(product, 1);
+                                sheetSetState(() {});
+                              },
+                              onRemove: () {
+                                _changeQuantity(product, -1);
+                                if (cart.isEmpty) {
                                   Navigator.pop(sheetContext);
+                                } else {
+                                  sheetSetState(() {});
                                 }
-                                Get.snackbar(
-                                  'Pedido confirmado',
-                                  'Puedes seguir tu pedido en "Mis Pedidos".',
-                                  snackPosition: SnackPosition.BOTTOM,
-                                );
-                              } else {
-                                sheetSetState(() => placingOrder = false);
-                                Get.snackbar(
-                                  'No se pudo crear',
-                                  response.message ?? 'Intenta nuevamente.',
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            key: addressFieldKey,
+                            controller: addressController,
+                            textInputAction: TextInputAction.done,
+                            onTap: () {
+                              final fieldContext =
+                                  addressFieldKey.currentContext;
+                              if (fieldContext != null) {
+                                Scrollable.ensureVisible(
+                                  fieldContext,
+                                  duration: const Duration(milliseconds: 180),
+                                  curve: Curves.easeOut,
+                                  alignment: 0.2,
                                 );
                               }
                             },
-                      icon: placingOrder
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.shopping_bag_outlined),
-                      label: Text(
-                        placingOrder
-                            ? 'Confirmando...'
-                            : 'Confirmar pedido · ${NumberFormatLike.clp(cartSubtotal + 2500)}',
+                            decoration: const InputDecoration(
+                              labelText: 'Dirección de entrega',
+                              prefixIcon: Icon(Icons.location_on_outlined),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: paymentMethod,
+                            decoration: const InputDecoration(
+                              labelText: 'Forma de pago',
+                              prefixIcon: Icon(Icons.payments_outlined),
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'Efectivo',
+                                child: Text('Efectivo'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Tarjeta',
+                                child: Text('Tarjeta al recibir'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Transferencia',
+                                child: Text('Transferencia'),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                paymentMethod = value ?? 'Efectivo',
+                          ),
+                          const SizedBox(height: 18),
+                          _PriceRow(label: 'Subtotal', value: cartSubtotal),
+                          const SizedBox(height: 8),
+                          const _PriceRow(label: 'Envío', value: 2500),
+                          const Divider(height: 24),
+                          _PriceRow(
+                            label: 'Total',
+                            value: cartSubtotal + 2500,
+                            strong: true,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: placingOrder
+                            ? null
+                            : () async {
+                                final address = addressController.text.trim();
+                                if (address.length < 6) {
+                                  Get.snackbar(
+                                    'Dirección incompleta',
+                                    'Indica calle, número y comuna.',
+                                  );
+                                  return;
+                                }
+                                sheetSetState(() => placingOrder = true);
+                                final estimate = await _estimateRoute(
+                                  '${cartProducts.first['restaurantAddress'] ?? cartProducts.first['restaurantName']}',
+                                  address,
+                                );
+                                final response = await appProvider.createOrder(
+                                  items: cartProducts
+                                      .map(
+                                        (p) => {
+                                          'product_id': p['id'],
+                                          'quantity': cart[p['id']],
+                                        },
+                                      )
+                                      .toList(),
+                                  address: address,
+                                  paymentMethod: paymentMethod,
+                                  distanceKm: estimate.$1,
+                                  estimatedMinutes: estimate.$2,
+                                );
+                                if (!mounted) return;
+                                if (response.success == true) {
+                                  await box.write('deliveryAddress', address);
+                                  // Keep new address key in sync
+                                  final raw = box.read('delivery_address');
+                                  if (raw is Map) {
+                                    final updated = Map<String, dynamic>.from(
+                                      raw,
+                                    )..['address'] = address;
+                                    await box.write(
+                                      'delivery_address',
+                                      updated,
+                                    );
+                                  } else {
+                                    await box.write('delivery_address', {
+                                      'address': address,
+                                      'label': null,
+                                      'lat': null,
+                                      'lng': null,
+                                    });
+                                  }
+                                  // Close the sheet before updating the parent view.
+                                  orderConfirmed = true;
+                                  if (sheetContext.mounted) {
+                                    FocusScope.of(sheetContext).unfocus();
+                                    Navigator.pop(sheetContext);
+                                  }
+                                } else {
+                                  sheetSetState(() => placingOrder = false);
+                                  Get.snackbar(
+                                    'No se pudo crear',
+                                    response.message ?? 'Intenta nuevamente.',
+                                  );
+                                }
+                              },
+                        icon: placingOrder
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.shopping_bag_outlined),
+                        label: Text(
+                          placingOrder
+                              ? 'Confirmando...'
+                              : 'Confirmar pedido · ${NumberFormatLike.clp(cartSubtotal + 2500)}',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -508,6 +518,8 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
 
     // Modal is closed — now safe to update parent state.
     if (orderConfirmed && mounted) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
       setState(() {
         cart.clear();
         _selectedTab = 1;
