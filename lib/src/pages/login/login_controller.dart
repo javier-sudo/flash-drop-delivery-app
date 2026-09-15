@@ -88,7 +88,7 @@ class LoginController extends GetxController {
             ? Map<String, dynamic>.from(resp.data)
             : <String, dynamic>{};
         await _box.write('user', map);
-        final token = map['accessToken'] ?? map['token'] ?? map['session_token'];
+        final token = map['token'] ?? map['session_token'];
         if (token != null) await _box.write('token', token);
         goToRolesPage();
       } else {
