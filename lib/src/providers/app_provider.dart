@@ -32,20 +32,10 @@ class AppProvider {
   }
 
   Future<List<Map<String, dynamic>>> getProducts() async {
-    final responses = await Future.wait([
-      http.get(Uri.parse('$_base/catalog/products')),
-      http.get(Uri.parse('$_base/catalog/restaurants')),
-    ]);
-    final products = List<Map<String, dynamic>>.from(_body(responses[0]) ?? []);
-    final restaurants = List<Map<String, dynamic>>.from(
-      _body(responses[1]) ?? [],
-    );
-    final restaurantsById = {
-      for (final restaurant in restaurants) '${restaurant['id']}': restaurant,
-    };
-
-    return products.map((product) {
-      final restaurant = restaurantsById['${product['restaurantId']}'];
+    final res = await http.get(Uri.parse('$_base/catalog/products'));
+    return List<Map<String, dynamic>>.from(_body(res) ?? []).map((product) {
+      // Catalog exposes the IDs for these relations; the mobile UI also needs a
+      // readable fallback while Catalog does not include their display names.
       return {
         ...product,
         'categoryName':
@@ -53,10 +43,7 @@ class AppProvider {
             'Categoria ${product['categoryId'] ?? ''}',
         'restaurantName':
             product['restaurantName'] ??
-            restaurant?['name'] ??
             'Restaurante ${product['restaurantId'] ?? ''}',
-        'restaurantAddress':
-            product['restaurantAddress'] ?? restaurant?['address'],
       };
     }).toList();
   }
@@ -81,11 +68,12 @@ class AppProvider {
   }
 
   Future<ResponseApi> createOrder({
-    Object? productId,
+    int? productId,
     int quantity = 1,
     List<Map<String, dynamic>>? items,
     required String address,
     String paymentMethod = 'Efectivo',
+    int? userId,
     double? distanceKm,
     int? estimatedMinutes,
   }) async {
@@ -95,12 +83,10 @@ class AppProvider {
       body: jsonEncode({
         if (productId != null) 'product_id': productId,
         'quantity': quantity,
-        if (items != null)
-          'items': items
-              .map((item) => {...item, 'product_id': item['product_id']})
-              .toList(),
+        if (items != null) 'items': items,
         'address': address,
         'payment_method': paymentMethod,
+        if (userId != null) 'user_id': userId,
         if (distanceKm != null) 'distance_km': distanceKm,
         if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
       }),
