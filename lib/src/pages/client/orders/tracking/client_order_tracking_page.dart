@@ -20,7 +20,7 @@ class ClientOrderTrackingPage extends StatefulWidget {
 class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   final _appProvider = AppProvider();
 
-  late final Object _orderId;
+  late final int _orderId;
   Map<String, dynamic> _order = {};
   bool _loading = true;
   String? _error;
@@ -33,7 +33,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   @override
   void initState() {
     super.initState();
-    _orderId = Get.arguments ?? '';
+    _orderId = (Get.arguments as int?) ?? 0;
     _loadOrder();
   }
 
@@ -365,7 +365,12 @@ class _StatusTimeline extends StatelessWidget {
           final done = step <= currentStep;
           final active = step == currentStep;
           final (icon, label) = _steps[step];
-          return _StepDot(icon: icon, label: label, done: done, active: active);
+          return _StepDot(
+            icon: icon,
+            label: label,
+            done: done,
+            active: active,
+          );
         }),
       ),
     );
@@ -426,7 +431,8 @@ class _StepDot extends StatelessWidget {
           style: TextStyle(
             fontSize: 10,
             fontWeight: active ? FontWeight.w900 : FontWeight.w400,
-            color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+            color:
+                done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
           ),
         ),
       ],
@@ -457,9 +463,17 @@ class _TrackingMap extends StatelessWidget {
     ];
     final markers = <Marker>[
       if (pickupCoord != null)
-        _buildMarker(pickupCoord!, Icons.storefront, const Color(0xFF16824B)),
+        _buildMarker(
+          pickupCoord!,
+          Icons.storefront,
+          const Color(0xFF16824B),
+        ),
       if (deliveryCoord != null)
-        _buildMarker(deliveryCoord!, Icons.home, const Color(0xFF1769C2)),
+        _buildMarker(
+          deliveryCoord!,
+          Icons.home,
+          const Color(0xFF1769C2),
+        ),
     ];
     final center =
         deliveryCoord ?? pickupCoord ?? const LatLng(-33.4372, -70.6506);
@@ -475,9 +489,15 @@ class _TrackingMap extends StatelessWidget {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
-            _LegendItem(color: const Color(0xFF16824B), label: 'Restaurante'),
+            _LegendItem(
+              color: const Color(0xFF16824B),
+              label: 'Restaurante',
+            ),
             const SizedBox(width: 12),
-            _LegendItem(color: const Color(0xFF1769C2), label: 'Tu dirección'),
+            _LegendItem(
+              color: const Color(0xFF1769C2),
+              label: 'Tu dirección',
+            ),
           ],
         ),
         const SizedBox(height: 10),
@@ -487,7 +507,9 @@ class _TrackingMap extends StatelessWidget {
             height: 220,
             child: FlutterMap(
               key: ValueKey(
-                points.map((p) => '${p.latitude},${p.longitude}').join('|'),
+                points
+                    .map((p) => '${p.latitude},${p.longitude}')
+                    .join('|'),
               ),
               options: MapOptions(
                 initialCenter: center,
@@ -501,7 +523,8 @@ class _TrackingMap extends StatelessWidget {
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName:
                       'com.javier.proyecto_app_delivery_gessof',
                 ),

@@ -275,19 +275,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   // ── DELIVERY ACTIONS ───────────────────────────────────────────────────────
 
   Future<void> _markDelivered(Map<String, dynamic> route) async {
-    final routeId = route['id'] as int?;
-    if (routeId == null) {
-      Get.snackbar('Error', 'La ruta no tiene identificador.');
-      return;
-    }
-    final response = await _api.updateRouteStatus(routeId, 'Entregado');
-    if (response.success != true) {
-      Get.snackbar(
-        'No se pudo actualizar',
-        response.message ?? 'Intenta nuevamente.',
-      );
-      return;
-    }
+    await _api.updateOrderStatus(route['orderId'], 'Entregado');
     final remaining = (_claimedIds.toList()..remove(route['orderId'] as int));
     if (remaining.isEmpty) {
       _box.remove(_kActiveKey);
