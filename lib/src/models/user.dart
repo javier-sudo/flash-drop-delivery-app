@@ -41,7 +41,8 @@ class User {
           json['lastname']?.toString(),
       phone: json['phone']?.toString() ?? '',
       photo: json['photo']?.toString() ?? json['image']?.toString(),
-      sessionToken: json['session_token']?.toString(),
+      sessionToken:
+          json['accessToken']?.toString() ?? json['session_token']?.toString(),
       roles: _parseRoles(rawRoles),
     );
   }
@@ -52,8 +53,23 @@ class User {
       if (role is Map) {
         return Rol.fromJson(Map<String, dynamic>.from(role));
       }
-      return Rol(id: null, name: role.toString(), image: '', route: '/home');
+      final name = role.toString();
+      return Rol(
+        id: null,
+        name: name,
+        image: '',
+        route: _routeForRole(name),
+      );
     }).toList();
+  }
+
+  static String _routeForRole(String role) {
+    final normalized = role.toLowerCase();
+    if (normalized.contains('restaurante')) return '/restaurant/orders/list';
+    if (normalized.contains('repartidor') || normalized.contains('delivery')) {
+      return '/delivery/orders/list';
+    }
+    return '/client/products/list';
   }
 
   Map<String, dynamic> toJson() => {
