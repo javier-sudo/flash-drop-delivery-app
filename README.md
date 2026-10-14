@@ -33,7 +33,8 @@ flutter pub get
 ```
 
 El comando abre un tunel SSH hacia FloCI y ejecuta la app contra el Gateway.
-Para otros destinos, ve [GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md).
+Para Windows nativo usa `-Target windows`. Para otros detalles, ve
+[GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md).
 
 ## Generar APK
 

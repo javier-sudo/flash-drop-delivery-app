@@ -18,12 +18,16 @@ Luego se ejecuta Flutter con la URL adecuada para cada destino:
 | Destino | Comando |
 | --- | --- |
 | Emulador Android | `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` |
-| Chrome o escritorio | `flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:3000` |
+| Windows nativo | `flutter run -d windows --dart-define=API_BASE_URL=http://127.0.0.1:3000` |
 | Telefono Android por USB | `adb reverse tcp:3000 tcp:3000` y luego `flutter run --dart-define=API_BASE_URL=http://127.0.0.1:3000` |
 
 En Windows, `./scripts/run-floci.ps1 -Target android-emulator` automatiza el
 tunel y el comando Flutter. Un telefono sin USB requiere una URL HTTPS publica
 temporal del Gateway; no debe recibir una direccion `localhost`.
+
+Flutter Web no se usa por ahora contra FloCI: el preflight CORS esta permitido,
+pero la solicitud real a Catalog con origen de navegador recibe 403. Eso debe
+corregirse en el Gateway antes de habilitar Chrome o Edge.
 
 ## Contratos que consume la app
 

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('android-emulator', 'android-device', 'web')]
+    [ValidateSet('android-emulator', 'android-device', 'windows')]
     [string]$Target = 'android-emulator',
     [string]$Server = 'dev@76.13.168.23',
     [int]$GatewayPort = 3000
@@ -44,8 +44,8 @@ try {
             adb reverse "tcp:$GatewayPort" "tcp:$GatewayPort"
             flutter run "--dart-define=API_BASE_URL=http://127.0.0.1:$GatewayPort"
         }
-        'web' {
-            flutter run -d chrome "--dart-define=API_BASE_URL=http://127.0.0.1:$GatewayPort"
+        'windows' {
+            flutter run -d windows "--dart-define=API_BASE_URL=http://127.0.0.1:$GatewayPort"
         }
     }
 }
