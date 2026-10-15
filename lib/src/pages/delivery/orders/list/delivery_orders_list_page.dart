@@ -237,10 +237,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     setState(() => _claiming = true);
     try {
       final ids = _selected.map((r) => r['orderId'] as int).toSet();
-      final response = await _api.claimDeliveryOrders(
-        userId: _currentUser.id ?? 0,
-        orderIds: ids.toList(),
-      );
+      final response = await _api.claimDeliveryOrders(orderIds: ids.toList());
       if (response.success != true) {
         if (mounted) setState(() => _claiming = false);
         Get.snackbar(
@@ -912,8 +909,9 @@ class _SelectableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = '${route['status']}';
+    final status = _routeValue(route, 'status', fallback: 'Pendiente');
     final isReady = status.toLowerCase().contains('listo');
+    final total = route['total'];
 
     return GestureDetector(
       onTap: dimmed ? null : onTap,
@@ -979,7 +977,7 @@ class _SelectableCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            '${route['code']} · ${route['restaurantName']}',
+                            _routeTitle(route),
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 14,
@@ -1019,13 +1017,21 @@ class _SelectableCard extends StatelessWidget {
                     _StopRow(
                       color: const Color(0xFF16824B),
                       label: 'Retirar',
-                      address: '${route['pickupAddress']}',
+                      address: _routeValue(
+                        route,
+                        'pickupAddress',
+                        fallback: 'Local pendiente',
+                      ),
                     ),
                     const SizedBox(height: 4),
                     _StopRow(
                       color: const Color(0xFF0C9AF8),
                       label: 'Entregar',
-                      address: '${route['deliveryAddress']}',
+                      address: _routeValue(
+                        route,
+                        'deliveryAddress',
+                        fallback: 'Direccion pendiente',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -1037,7 +1043,7 @@ class _SelectableCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${route['estimatedMinutes']} min',
+                          '${_routeValue(route, 'estimatedMinutes', fallback: '--')} min',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF7B8189),
@@ -1051,22 +1057,23 @@ class _SelectableCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${(route['distanceKm'] as num).toStringAsFixed(1)} km',
+                          '${_routeNumber(route['distanceKm']).toStringAsFixed(1)} km',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF7B8189),
                           ),
                         ),
                         const Spacer(),
-                        Text(
-                          _clp(route['total']),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: dimmed
-                                ? const Color(0xFFADB3BA)
-                                : const Color(0xFF1A1A1A),
+                        if (total != null)
+                          Text(
+                            _clp(total),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: dimmed
+                                  ? const Color(0xFFADB3BA)
+                                  : const Color(0xFF1A1A1A),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1310,7 +1317,7 @@ class _ActiveOrderTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${route['code']} · ${route['restaurantName']}',
+                  _routeTitle(route),
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
@@ -1318,7 +1325,7 @@ class _ActiveOrderTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${route['clientName']} · ${route['deliveryAddress']}',
+                  _routeSubtitle(route),
                   style: const TextStyle(
                     color: Color(0xFF7B8189),
                     fontSize: 12,
@@ -1353,6 +1360,44 @@ class _ActiveOrderTile extends StatelessWidget {
 }
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
+
+String _routeTitle(Map<String, dynamic> route) {
+  final code = _routeValue(route, 'code');
+  final restaurant = _routeValue(route, 'restaurantName');
+  final pickup = _routeValue(route, 'pickupAddress');
+  final locationName = restaurant.isNotEmpty
+      ? restaurant
+      : pickup.split(',').first.trim();
+  final parts = [
+    if (code.isNotEmpty) code,
+    if (locationName.isNotEmpty) locationName,
+  ];
+  return parts.isNotEmpty
+      ? parts.join(' · ')
+      : 'Pedido #${_routeValue(route, 'orderId', fallback: '-')}';
+}
+
+String _routeSubtitle(Map<String, dynamic> route) {
+  final client = _routeValue(route, 'clientName');
+  final address = _routeValue(
+    route,
+    'deliveryAddress',
+    fallback: 'Direccion pendiente',
+  );
+  return client.isEmpty ? address : '$client · $address';
+}
+
+String _routeValue(
+  Map<String, dynamic> route,
+  String key, {
+  String fallback = '',
+}) {
+  final value = route[key]?.toString().trim();
+  return value == null || value.isEmpty || value == 'null' ? fallback : value;
+}
+
+double _routeNumber(dynamic value) =>
+    value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
 class _StopRow extends StatelessWidget {
   final Color color;
