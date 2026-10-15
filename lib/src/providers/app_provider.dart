@@ -125,14 +125,12 @@ class AppProvider {
     return _response(res);
   }
 
-  Future<ResponseApi> claimDeliveryOrders({
-    required int userId,
-    required List<int> orderIds,
-  }) async {
+  Future<ResponseApi> claimDeliveryOrders({required List<int> orderIds}) async {
     final res = await http.post(
       Uri.parse('$_base/api/delivery/claim'),
       headers: _headers,
-      body: jsonEncode({'user_id': userId, 'order_ids': orderIds}),
+      // Delivery derives the courier from the JWT. Its public DTO is camelCase.
+      body: jsonEncode({'orderIds': orderIds}),
     );
     return _response(res);
   }
