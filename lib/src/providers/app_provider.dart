@@ -80,6 +80,22 @@ class AppProvider {
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
+  Future<List<Map<String, dynamic>>> getRestaurants() async {
+    final res = await http.get(Uri.parse('$_base/catalog/restaurants'));
+    return List<Map<String, dynamic>>.from(_body(res) ?? []);
+  }
+
+  Future<List<Map<String, dynamic>>> getAvailableDeliveryOrders({
+    required int restaurantId,
+    int limit = 5,
+  }) async {
+    final uri = Uri.parse('$_base/api/orders/available-for-delivery').replace(
+      queryParameters: {'restaurant_id': '$restaurantId', 'limit': '$limit'},
+    );
+    final res = await http.get(uri, headers: _headers);
+    return List<Map<String, dynamic>>.from(_body(res) ?? []);
+  }
+
   Future<ResponseApi> createOrder({
     Object? productId,
     int quantity = 1,
