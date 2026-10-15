@@ -51,5 +51,8 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- flutter_map (opcion B): permiso de ubicacion para my location del repartidor (futuro). -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Necesito tu ubicacion para mostrar el pedido en el mapa y calcular la ruta de entrega.</string>
 </dict>
 </plist>
