@@ -1,13 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
 
 class ClientOrderTrackingPage extends StatefulWidget {
   const ClientOrderTrackingPage({super.key});
@@ -188,12 +187,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         const SizedBox(height: 20),
         _StatusTimeline(currentStep: _currentStep),
         const SizedBox(height: 22),
-        _TrackingMap(
-          pickupCoord: _pickupCoord,
-          deliveryCoord: _deliveryCoord,
-          pickupAddress: _pickupAddress,
-          deliveryAddress: '${_order['address'] ?? ''}',
-        ),
+        _TrackingMap(pickupCoord: _pickupCoord, deliveryCoord: _deliveryCoord),
         const SizedBox(height: 18),
         _InfoCard(
           icon: Icons.location_on_outlined,
@@ -439,31 +433,11 @@ class _StepDot extends StatelessWidget {
 class _TrackingMap extends StatelessWidget {
   final LatLng? pickupCoord;
   final LatLng? deliveryCoord;
-  final String pickupAddress;
-  final String deliveryAddress;
 
-  const _TrackingMap({
-    required this.pickupCoord,
-    required this.deliveryCoord,
-    required this.pickupAddress,
-    required this.deliveryAddress,
-  });
+  const _TrackingMap({required this.pickupCoord, required this.deliveryCoord});
 
   @override
   Widget build(BuildContext context) {
-    final points = <LatLng>[
-      if (pickupCoord != null) pickupCoord!,
-      if (deliveryCoord != null) deliveryCoord!,
-    ];
-    final markers = <Marker>[
-      if (pickupCoord != null)
-        _buildMarker(pickupCoord!, Icons.storefront, const Color(0xFF16824B)),
-      if (deliveryCoord != null)
-        _buildMarker(deliveryCoord!, Icons.home, const Color(0xFF1769C2)),
-    ];
-    final center =
-        deliveryCoord ?? pickupCoord ?? const LatLng(-33.4372, -70.6506);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -485,68 +459,13 @@ class _TrackingMap extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           child: SizedBox(
             height: 220,
-            child: FlutterMap(
-              key: ValueKey(
-                points.map((p) => '${p.latitude},${p.longitude}').join('|'),
-              ),
-              options: MapOptions(
-                initialCenter: center,
-                initialZoom: points.length <= 1 ? 14 : 13,
-                initialCameraFit: points.length > 1
-                    ? CameraFit.bounds(
-                        bounds: LatLngBounds.fromPoints(points),
-                        padding: const EdgeInsets.all(48),
-                      )
-                    : null,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName:
-                      'com.javier.proyecto_app_delivery_gessof',
-                ),
-                if (points.length > 1)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: points,
-                        strokeWidth: 4,
-                        color: const Color(0xFFFFB300),
-                      ),
-                    ],
-                  ),
-                MarkerLayer(markers: markers),
-                RichAttributionWidget(
-                  attributions: [
-                    TextSourceAttribution(
-                      'OpenStreetMap contributors',
-                      onTap: () => launchUrl(
-                        Uri.parse('https://openstreetmap.org/copyright'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+            child: MapTrackingWidget(
+              pickupLocation: pickupCoord,
+              deliveryLocation: deliveryCoord,
             ),
           ),
         ),
       ],
-    );
-  }
-
-  static Marker _buildMarker(LatLng point, IconData icon, Color color) {
-    return Marker(
-      point: point,
-      width: 44,
-      height: 44,
-      child: Container(
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2.5),
-        ),
-        child: Icon(icon, color: Colors.white, size: 22),
-      ),
     );
   }
 }
