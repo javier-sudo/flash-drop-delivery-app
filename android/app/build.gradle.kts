@@ -28,6 +28,18 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // google_maps_flutter: API key leída desde android/local.properties (gitignored).
+        // Defaults a "PLACEHOLDER" para que el build no falle si la propiedad no existe.
+        // El cliente debe setear MAPS_API_KEY=AIza... en android/local.properties cuando quiera activar el mapa.
+        val propsFile = rootProject.file("local.properties")
+        val mapsKey = if (propsFile.exists()) {
+            java.util.Properties().apply { propsFile.inputStream().use { load(it) } }
+                .getProperty("MAPS_API_KEY") ?: "PLACEHOLDER"
+        } else {
+            "PLACEHOLDER"
+        }
+        manifestPlaceholders["MAPS_API_KEY"] = mapsKey
     }
 
     buildTypes {

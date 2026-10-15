@@ -51,5 +51,13 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- google_maps_flutter: API key por variable de build $(GOOGLE_MAPS_API_KEY). -->
+	<!-- Pasarla con: flutter build ios --dart-define=GOOGLE_MAPS_API_KEY=AIza... -->
+	<!-- Vacío está OK al desarrollar; el mapa mostrará el overlay de desarrollo. -->
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
+	<!-- Permisos de ubicación para "my location" del repartidor (futuro). -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Necesito tu ubicación para mostrar el pedido en el mapa y calcular la ruta de entrega.</string>
 </dict>
 </plist>
