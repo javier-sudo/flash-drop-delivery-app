@@ -4,108 +4,111 @@
 // OpenStreetMap vía flutter_map.
 //
 // Forma parte de la OPCIÓN B del feature "flashdrop-map-options-prep".
-// NO está integrado todavía en client_order_tracking_page.dart ni en
-// delivery_orders_list_page.dart — esa integración la hace el dev a cargo
-// cuando decida cuál opción conservar (A: google_maps_flutter, o B: flutter_map).
-//
-// Requisitos:
-//   - flutter_map, latlong2, geocoding: ya presentes en pubspec.yaml.
-//   - geolocator: agregado en esta rama, para "my location" del repartidor.
-//   - Atribución obligatoria "OpenStreetMap contributors" — la incluye el
-//     RichAttributionWidget, no la quites (requisito de la ODbL).
-//
-// TODO cuando se integre:
-//   - Reemplazar las coordenadas hardcoded (_pickup, _delivery) por
-//     geocodificación real usando el package `geocoding` (ya presente)
-//     con pickupAddress/deliveryAddress.
-//   - Permitir `currentLocation` desde geolocator.getPositionStream().
-//   - Calcular polyline con OSRM público
-//     (https://router.project-osrm.org/route/v1/driving/...) si el D-1
-//     del doc requiere ruta óptima en lugar de línea recta.
+// La pantalla que lo usa resuelve las direcciones obtenidas desde FloCI a
+// coordenadas antes de construir el widget. El mapa nunca inventa puntos de
+// retiro o entrega: si no hay coordenadas, muestra solo la zona base.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-class MapTrackingWidget extends StatefulWidget {
-  final String pickupAddress;
-  final String deliveryAddress;
+class MapTrackingWidget extends StatelessWidget {
+  final LatLng? pickupLocation;
+  final LatLng? deliveryLocation;
   final LatLng? currentLocation;
 
   const MapTrackingWidget({
     super.key,
-    required this.pickupAddress,
-    required this.deliveryAddress,
+    this.pickupLocation,
+    this.deliveryLocation,
     this.currentLocation,
   });
 
   @override
-  State<MapTrackingWidget> createState() => _MapTrackingWidgetState();
-}
-
-class _MapTrackingWidgetState extends State<MapTrackingWidget> {
-  final MapController _mapController = MapController();
-
-  // Coordenadas de ejemplo (Maipú -> Santiago centro). Sustituir por geocoding real.
-  static const LatLng _pickup = LatLng(-33.4489, -70.6693);
-  static const LatLng _delivery = LatLng(-33.4248, -70.6090);
-
-  @override
   Widget build(BuildContext context) {
+    final points = <LatLng>[
+      if (pickupLocation != null) pickupLocation!,
+      if (deliveryLocation != null) deliveryLocation!,
+    ];
+    final center =
+        deliveryLocation ??
+        pickupLocation ??
+        currentLocation ??
+        const LatLng(-33.4372, -70.6506);
+
     return FlutterMap(
-      mapController: _mapController,
+      key: ValueKey(
+        points.map((point) => '${point.latitude},${point.longitude}').join('|'),
+      ),
       options: MapOptions(
-        initialCenter: _pickup,
-        initialZoom: 13,
+        initialCenter: center,
+        initialZoom: points.length <= 1 ? 14 : 13,
+        initialCameraFit: points.length > 1
+            ? CameraFit.bounds(
+                bounds: LatLngBounds.fromPoints(points),
+                padding: const EdgeInsets.all(48),
+              )
+            : null,
       ),
       children: [
         TileLayer(
-          // OpenStreetMap público. userAgentPackageName es OBLIGATORIO por
-          // la política de uso de tiles OSM.
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.javier.proyecto_app_delivery_gessof',
           maxNativeZoom: 19,
         ),
         MarkerLayer(
           markers: [
-            Marker(
-              point: _pickup,
-              width: 40,
-              height: 40,
-              child: const Icon(Icons.store, color: Colors.orange, size: 36),
-            ),
-            Marker(
-              point: _delivery,
-              width: 40,
-              height: 40,
-              child: const Icon(Icons.location_on, color: Colors.red, size: 36),
-            ),
-            if (widget.currentLocation != null)
+            if (pickupLocation != null)
+              _marker(
+                pickupLocation!,
+                Icons.storefront,
+                const Color(0xFF16824B),
+              ),
+            if (deliveryLocation != null)
+              _marker(deliveryLocation!, Icons.home, const Color(0xFF1769C2)),
+            if (currentLocation != null)
               Marker(
-                point: widget.currentLocation!,
+                point: currentLocation!,
                 width: 40,
                 height: 40,
-                child: const Icon(Icons.my_location, color: Colors.blue, size: 36),
+                child: const Icon(
+                  Icons.my_location,
+                  color: Colors.blue,
+                  size: 36,
+                ),
               ),
           ],
         ),
-        PolylineLayer(
-          polylines: [
-            Polyline(
-              points: [_pickup, _delivery],
-              strokeWidth: 4,
-              color: Colors.blue,
-            ),
-          ],
-        ),
-        // Atribución OBLIGATORIA por la licencia ODbL de OpenStreetMap.
-        // Quitar este widget infringe la licencia.
+        if (points.length > 1)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: points,
+                strokeWidth: 4,
+                color: const Color(0xFFFFB300),
+              ),
+            ],
+          ),
         const RichAttributionWidget(
-          attributions: [
-            TextSourceAttribution('OpenStreetMap contributors'),
-          ],
+          attributions: [TextSourceAttribution('OpenStreetMap contributors')],
         ),
       ],
+    );
+  }
+
+  static Marker _marker(LatLng point, IconData icon, Color color) {
+    return Marker(
+      point: point,
+      width: 44,
+      height: 44,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2.5),
+        ),
+        child: Icon(icon, color: Colors.white, size: 22),
+      ),
     );
   }
 }
