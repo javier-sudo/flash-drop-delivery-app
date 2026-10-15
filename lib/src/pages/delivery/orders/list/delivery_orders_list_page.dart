@@ -37,7 +37,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   final _box = GetStorage();
   final _coords = <String, LatLng>{};
 
-  List<Map<String, dynamic>> _allRoutes = [];
+  List<Map<String, dynamic>> _availableOrders = [];
+  List<Map<String, dynamic>> _ownRoutes = [];
   final _selectedIds = <int>{};
   final _claimedIds = <int>{};
 
@@ -74,21 +75,17 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     );
   }
 
-  // Orders not yet claimed by anyone: not "En camino" and not "Entregado"
-  List<Map<String, dynamic>> get _available => _allRoutes.where((r) {
-    final s = r['status'].toString().toLowerCase();
-    return !s.contains('camino') &&
-        !s.contains('retirado') &&
-        !s.contains('entregado');
-  }).toList();
+  // Orders exposes this list specifically for couriers: ready to collect and
+  // without a courier. Delivery routes are deliberately not used as a source.
+  List<Map<String, dynamic>> get _available => _availableOrders;
 
-  // This driver's active delivery orders
-  List<Map<String, dynamic>> get _active => _allRoutes.where((r) {
-    final deliveryUserId = int.tryParse('${r['deliveryUserId'] ?? ''}');
+  // GET /delivery/routes already scopes the response to the authenticated courier.
+  List<Map<String, dynamic>> get _active => _ownRoutes.where((r) {
     final s = r['status'].toString().toLowerCase();
-    return deliveryUserId == _currentUser.id &&
-        !s.contains('entregado') &&
-        (s.contains('camino') || s.contains('retirado'));
+    return !s.contains('entregado') &&
+        (s.contains('asignado') ||
+            s.contains('camino') ||
+            s.contains('retirado'));
   }).toList();
 
   // Currently selected (before claiming)
@@ -106,28 +103,48 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       });
     }
     try {
-      final routes = await _api.getDeliveryRoutes();
+      final routesFuture = _api.getDeliveryRoutes();
+      final restaurants = await _api.getRestaurants();
+      final availableByRestaurant = await Future.wait(
+        restaurants.map((restaurant) {
+          final restaurantId = int.tryParse('${restaurant['id'] ?? ''}');
+          return restaurantId == null
+              ? Future.value(<Map<String, dynamic>>[])
+              : _api.getAvailableDeliveryOrders(restaurantId: restaurantId);
+        }),
+      );
+      final routes = await routesFuture;
+      final availableOrders = availableByRestaurant
+          .expand((orders) => orders)
+          .toList();
       routes.sort(
-        (a, b) => (a['distanceKm'] as num).compareTo(b['distanceKm'] as num),
+        (a, b) => _routeNumber(
+          a['distanceKm'],
+        ).compareTo(_routeNumber(b['distanceKm'])),
+      );
+      availableOrders.sort(
+        (a, b) => _routeNumber(
+          a['distanceKm'],
+        ).compareTo(_routeNumber(b['distanceKm'])),
       );
       if (!mounted) return;
 
-      final currentUserId = _currentUser.id;
       final stillActive = routes
           .where((r) {
-            final deliveryUserId = int.tryParse('${r['deliveryUserId'] ?? ''}');
             final s = r['status'].toString().toLowerCase();
-            return deliveryUserId == currentUserId &&
-                !s.contains('entregado') &&
-                (s.contains('camino') || s.contains('retirado'));
+            return !s.contains('entregado') &&
+                (s.contains('asignado') ||
+                    s.contains('camino') ||
+                    s.contains('retirado'));
           })
           .map((r) => r['orderId'] as int)
           .toSet();
 
       setState(() {
-        _allRoutes = routes;
+        _ownRoutes = routes;
+        _availableOrders = availableOrders;
         _selectedIds.removeWhere(
-          (id) => !routes.any((r) => r['orderId'] == id),
+          (id) => !availableOrders.any((r) => r['orderId'] == id),
         );
         if (stillActive.isNotEmpty) {
           _claimedIds
