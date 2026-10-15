@@ -37,7 +37,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   final _box = GetStorage();
   final _coords = <String, LatLng>{};
 
-  List<Map<String, dynamic>> _allRoutes = [];
+  List<Map<String, dynamic>> _availableOrders = [];
+  List<Map<String, dynamic>> _ownRoutes = [];
   final _selectedIds = <int>{};
   final _claimedIds = <int>{};
 
@@ -74,21 +75,17 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     );
   }
 
-  // Orders not yet claimed by anyone: not "En camino" and not "Entregado"
-  List<Map<String, dynamic>> get _available => _allRoutes.where((r) {
-    final s = r['status'].toString().toLowerCase();
-    return !s.contains('camino') &&
-        !s.contains('retirado') &&
-        !s.contains('entregado');
-  }).toList();
+  // Orders exposes this list specifically for couriers: ready to collect and
+  // without a courier. Delivery routes are deliberately not used as a source.
+  List<Map<String, dynamic>> get _available => _availableOrders;
 
-  // This driver's active delivery orders
-  List<Map<String, dynamic>> get _active => _allRoutes.where((r) {
-    final deliveryUserId = int.tryParse('${r['deliveryUserId'] ?? ''}');
+  // GET /delivery/routes already scopes the response to the authenticated courier.
+  List<Map<String, dynamic>> get _active => _ownRoutes.where((r) {
     final s = r['status'].toString().toLowerCase();
-    return deliveryUserId == _currentUser.id &&
-        !s.contains('entregado') &&
-        (s.contains('camino') || s.contains('retirado'));
+    return !s.contains('entregado') &&
+        (s.contains('asignado') ||
+            s.contains('camino') ||
+            s.contains('retirado'));
   }).toList();
 
   // Currently selected (before claiming)
@@ -106,28 +103,48 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       });
     }
     try {
-      final routes = await _api.getDeliveryRoutes();
+      final routesFuture = _api.getDeliveryRoutes();
+      final restaurants = await _api.getRestaurants();
+      final availableByRestaurant = await Future.wait(
+        restaurants.map((restaurant) {
+          final restaurantId = int.tryParse('${restaurant['id'] ?? ''}');
+          return restaurantId == null
+              ? Future.value(<Map<String, dynamic>>[])
+              : _api.getAvailableDeliveryOrders(restaurantId: restaurantId);
+        }),
+      );
+      final routes = await routesFuture;
+      final availableOrders = availableByRestaurant
+          .expand((orders) => orders)
+          .toList();
       routes.sort(
-        (a, b) => (a['distanceKm'] as num).compareTo(b['distanceKm'] as num),
+        (a, b) => _routeNumber(
+          a['distanceKm'],
+        ).compareTo(_routeNumber(b['distanceKm'])),
+      );
+      availableOrders.sort(
+        (a, b) => _routeNumber(
+          a['distanceKm'],
+        ).compareTo(_routeNumber(b['distanceKm'])),
       );
       if (!mounted) return;
 
-      final currentUserId = _currentUser.id;
       final stillActive = routes
           .where((r) {
-            final deliveryUserId = int.tryParse('${r['deliveryUserId'] ?? ''}');
             final s = r['status'].toString().toLowerCase();
-            return deliveryUserId == currentUserId &&
-                !s.contains('entregado') &&
-                (s.contains('camino') || s.contains('retirado'));
+            return !s.contains('entregado') &&
+                (s.contains('asignado') ||
+                    s.contains('camino') ||
+                    s.contains('retirado'));
           })
           .map((r) => r['orderId'] as int)
           .toSet();
 
       setState(() {
-        _allRoutes = routes;
+        _ownRoutes = routes;
+        _availableOrders = availableOrders;
         _selectedIds.removeWhere(
-          (id) => !routes.any((r) => r['orderId'] == id),
+          (id) => !availableOrders.any((r) => r['orderId'] == id),
         );
         if (stillActive.isNotEmpty) {
           _claimedIds
@@ -237,10 +254,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     setState(() => _claiming = true);
     try {
       final ids = _selected.map((r) => r['orderId'] as int).toSet();
-      final response = await _api.claimDeliveryOrders(
-        userId: _currentUser.id ?? 0,
-        orderIds: ids.toList(),
-      );
+      final response = await _api.claimDeliveryOrders(orderIds: ids.toList());
       if (response.success != true) {
         if (mounted) setState(() => _claiming = false);
         Get.snackbar(
@@ -912,8 +926,9 @@ class _SelectableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = '${route['status']}';
+    final status = _routeValue(route, 'status', fallback: 'Pendiente');
     final isReady = status.toLowerCase().contains('listo');
+    final total = route['total'];
 
     return GestureDetector(
       onTap: dimmed ? null : onTap,
@@ -979,7 +994,7 @@ class _SelectableCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            '${route['code']} · ${route['restaurantName']}',
+                            _routeTitle(route),
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 14,
@@ -1019,13 +1034,21 @@ class _SelectableCard extends StatelessWidget {
                     _StopRow(
                       color: const Color(0xFF16824B),
                       label: 'Retirar',
-                      address: '${route['pickupAddress']}',
+                      address: _routeValue(
+                        route,
+                        'pickupAddress',
+                        fallback: 'Local pendiente',
+                      ),
                     ),
                     const SizedBox(height: 4),
                     _StopRow(
                       color: const Color(0xFF0C9AF8),
                       label: 'Entregar',
-                      address: '${route['deliveryAddress']}',
+                      address: _routeValue(
+                        route,
+                        'deliveryAddress',
+                        fallback: 'Direccion pendiente',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -1037,7 +1060,7 @@ class _SelectableCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${route['estimatedMinutes']} min',
+                          '${_routeValue(route, 'estimatedMinutes', fallback: '--')} min',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF7B8189),
@@ -1051,22 +1074,23 @@ class _SelectableCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${(route['distanceKm'] as num).toStringAsFixed(1)} km',
+                          '${_routeNumber(route['distanceKm']).toStringAsFixed(1)} km',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF7B8189),
                           ),
                         ),
                         const Spacer(),
-                        Text(
-                          _clp(route['total']),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: dimmed
-                                ? const Color(0xFFADB3BA)
-                                : const Color(0xFF1A1A1A),
+                        if (total != null)
+                          Text(
+                            _clp(total),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: dimmed
+                                  ? const Color(0xFFADB3BA)
+                                  : const Color(0xFF1A1A1A),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -1310,7 +1334,7 @@ class _ActiveOrderTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${route['code']} · ${route['restaurantName']}',
+                  _routeTitle(route),
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
@@ -1318,7 +1342,7 @@ class _ActiveOrderTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${route['clientName']} · ${route['deliveryAddress']}',
+                  _routeSubtitle(route),
                   style: const TextStyle(
                     color: Color(0xFF7B8189),
                     fontSize: 12,
@@ -1353,6 +1377,44 @@ class _ActiveOrderTile extends StatelessWidget {
 }
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
+
+String _routeTitle(Map<String, dynamic> route) {
+  final code = _routeValue(route, 'code');
+  final restaurant = _routeValue(route, 'restaurantName');
+  final pickup = _routeValue(route, 'pickupAddress');
+  final locationName = restaurant.isNotEmpty
+      ? restaurant
+      : pickup.split(',').first.trim();
+  final parts = [
+    if (code.isNotEmpty) code,
+    if (locationName.isNotEmpty) locationName,
+  ];
+  return parts.isNotEmpty
+      ? parts.join(' · ')
+      : 'Pedido #${_routeValue(route, 'orderId', fallback: '-')}';
+}
+
+String _routeSubtitle(Map<String, dynamic> route) {
+  final client = _routeValue(route, 'clientName');
+  final address = _routeValue(
+    route,
+    'deliveryAddress',
+    fallback: 'Direccion pendiente',
+  );
+  return client.isEmpty ? address : '$client · $address';
+}
+
+String _routeValue(
+  Map<String, dynamic> route,
+  String key, {
+  String fallback = '',
+}) {
+  final value = route[key]?.toString().trim();
+  return value == null || value.isEmpty || value == 'null' ? fallback : value;
+}
+
+double _routeNumber(dynamic value) =>
+    value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
 class _StopRow extends StatelessWidget {
   final Color color;
