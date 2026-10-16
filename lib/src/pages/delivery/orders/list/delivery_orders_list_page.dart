@@ -294,6 +294,26 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       Get.snackbar('Error', 'La ruta no tiene identificador.');
       return;
     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmar entrega'),
+        content: Text(
+          'Confirma que entregaste el pedido en ${route['deliveryAddress'] ?? 'la dirección indicada'}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirmar entrega'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     final response = await _api.updateRouteStatus(routeId, 'Entregado');
     if (response.success != true) {
       Get.snackbar(
@@ -529,10 +549,13 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         ),
         Expanded(
           flex: 4,
-          child: _ActiveDeliveriesPanel(
-            routes: routes,
-            onNavigate: _navigate,
-            onDelivered: _markDelivered,
+          child: SafeArea(
+            top: false,
+            child: _ActiveDeliveriesPanel(
+              routes: routes,
+              onNavigate: _navigate,
+              onDelivered: _markDelivered,
+            ),
           ),
         ),
       ],

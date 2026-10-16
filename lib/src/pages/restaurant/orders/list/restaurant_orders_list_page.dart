@@ -42,7 +42,7 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
       errorMessage = null;
     });
     try {
-      final data = await appProvider.getOrders(userId: currentUser.id);
+      final data = await appProvider.getOrders(view: 'restaurant');
       if (!mounted) return;
       setState(() {
         orders = data;
@@ -113,7 +113,12 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
         ? '${orders.first['restaurantName']}'
         : (currentUser.name ?? 'Mi restaurante');
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        28 + MediaQuery.paddingOf(context).bottom,
+      ),
       children: [
         _SummaryHeader(
           restaurantName: restaurantName,

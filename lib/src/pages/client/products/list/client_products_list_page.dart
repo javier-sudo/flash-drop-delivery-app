@@ -26,6 +26,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
   List<Map<String, dynamic>> products = [];
   final Map<int, int> cart = {};
   String selectedCategory = 'Todos';
+  String selectedRestaurant = 'Todos';
   bool isLoading = true;
   String? errorMessage;
   int _selectedTab = 0;
@@ -91,6 +92,16 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     return ['Todos', ...names];
   }
 
+  List<String> get restaurants {
+    final names =
+        products
+            .map((p) => '${p['restaurantName'] ?? 'Sin local'}')
+            .toSet()
+            .toList()
+          ..sort();
+    return ['Todos', ...names];
+  }
+
   List<Map<String, dynamic>> get filteredProducts {
     final query = searchController.text.trim().toLowerCase();
     return products.where((product) {
@@ -104,7 +115,10 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           category.toLowerCase().contains(query);
       final matchesCategory =
           selectedCategory == 'Todos' || category == selectedCategory;
-      return matchesText && matchesCategory;
+      final matchesRestaurant =
+          selectedRestaurant == 'Todos' ||
+          restaurant == selectedRestaurant.toLowerCase();
+      return matchesText && matchesCategory && matchesRestaurant;
     }).toList();
   }
 
@@ -156,32 +170,35 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           const ClientOrdersListWidget(),
         ],
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_selectedTab == 0 && cart.isNotEmpty)
-            _CartBar(
-              itemCount: cartCount,
-              total: cartSubtotal + 2500,
-              onPressed: _openCart,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_selectedTab == 0 && cart.isNotEmpty)
+              _CartBar(
+                itemCount: cartCount,
+                total: cartSubtotal + 2500,
+                onPressed: _openCart,
+              ),
+            NavigationBar(
+              selectedIndex: _selectedTab,
+              onDestinationSelected: (i) => setState(() => _selectedTab = i),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.storefront_outlined),
+                  selectedIcon: Icon(Icons.storefront),
+                  label: 'Catálogo',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.receipt_long_outlined),
+                  selectedIcon: Icon(Icons.receipt_long),
+                  label: 'Mis Pedidos',
+                ),
+              ],
             ),
-          NavigationBar(
-            selectedIndex: _selectedTab,
-            onDestinationSelected: (i) => setState(() => _selectedTab = i),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.storefront_outlined),
-                selectedIcon: Icon(Icons.storefront),
-                label: 'Catálogo',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.receipt_long_outlined),
-                selectedIcon: Icon(Icons.receipt_long),
-                label: 'Mis Pedidos',
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -207,6 +224,17 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           categories: categories,
           selected: selectedCategory,
           onSelected: (value) => setState(() => selectedCategory = value),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'Filtrar por local',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        _CategoryFilters(
+          categories: restaurants,
+          selected: selectedRestaurant,
+          onSelected: (value) => setState(() => selectedRestaurant = value),
         ),
         const SizedBox(height: 18),
         Row(
