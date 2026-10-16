@@ -2,9 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 
-import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 
 class ClientOrdersListWidget extends StatefulWidget {
@@ -20,11 +18,6 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
-
-  User get _currentUser {
-    final raw = GetStorage().read('user');
-    return User.fromJson(raw == null ? {} : Map<String, dynamic>.from(raw));
-  }
 
   @override
   void initState() {
@@ -50,7 +43,7 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
       });
     }
     try {
-      final data = await _appProvider.getOrders(userId: _currentUser.id);
+      final data = await _appProvider.getOrders(view: 'client');
       if (!mounted) return;
       setState(() {
         _orders = data;

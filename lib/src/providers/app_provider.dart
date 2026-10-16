@@ -35,6 +35,7 @@ class AppProvider {
     final responses = await Future.wait([
       http.get(Uri.parse('$_base/catalog/products')),
       http.get(Uri.parse('$_base/catalog/restaurants')),
+      http.get(Uri.parse('$_base/catalog/categories')),
     ]);
     final products = List<Map<String, dynamic>>.from(_body(responses[0]) ?? []);
     final restaurants = List<Map<String, dynamic>>.from(
@@ -43,14 +44,22 @@ class AppProvider {
     final restaurantsById = {
       for (final restaurant in restaurants) '${restaurant['id']}': restaurant,
     };
+    final categories = List<Map<String, dynamic>>.from(
+      _body(responses[2]) ?? [],
+    );
+    final categoriesById = {
+      for (final category in categories) '${category['id']}': category,
+    };
 
     return products.map((product) {
       final restaurant = restaurantsById['${product['restaurantId']}'];
+      final category = categoriesById['${product['categoryId']}'];
       return {
         ...product,
         'categoryName':
             product['categoryName'] ??
-            'Categoria ${product['categoryId'] ?? ''}',
+            category?['name'] ??
+            'Sin categoría',
         'restaurantName':
             product['restaurantName'] ??
             restaurant?['name'] ??
@@ -61,12 +70,15 @@ class AppProvider {
     }).toList();
   }
 
-  Future<List<Map<String, dynamic>>> getOrders({int? userId}) async {
+  Future<List<Map<String, dynamic>>> getOrders({String? view}) async {
     // Orders currently exposes user_id as UUID, while Auth emits a numeric
     // userId. The authenticated identity is already carried by the JWT, so
     // avoid sending an incompatible query parameter from the mobile client.
+    final uri = Uri.parse('$_base/api/orders').replace(
+      queryParameters: view == null ? null : {'view': view},
+    );
     final res = await http.get(
-      Uri.parse('$_base/api/orders'),
+      uri,
       headers: _headers,
     );
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
