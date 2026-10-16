@@ -18,9 +18,9 @@ enum _Mode { selecting, delivering }
 const int _kMax = 3;
 const String _kActiveKey = 'driver_active_orders';
 
-// Carto Voyager — clean, modern, much better than default OSM
+// OpenStreetMap tiles do not require a provider API key for this app.
 const String _kTileUrl =
-    'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -691,9 +691,9 @@ class _DeliveryMap extends StatelessWidget {
         RichAttributionWidget(
           attributions: [
             TextSourceAttribution(
-              '© CartoDB © OpenStreetMap',
+              '© OpenStreetMap contributors',
               onTap: () =>
-                  launchUrl(Uri.parse('https://carto.com/attributions')),
+                  launchUrl(Uri.parse('https://www.openstreetmap.org/copyright')),
             ),
           ],
         ),
