@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
-import 'package:latlong2/latlong.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
@@ -24,10 +22,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   bool _loading = true;
   String? _error;
   Timer? _timer;
-
-  LatLng? _pickupCoord;
-  LatLng? _deliveryCoord;
-  bool _geocoding = false;
 
   @override
   void initState() {
@@ -57,7 +51,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         _loading = false;
       });
       _scheduleRefreshIfActive();
-      if (!_geocoding) await _geocodeAddresses();
     } catch (_) {
       if (!mounted) return;
       if (!silent) {
@@ -109,35 +102,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     return '';
   }
 
-  Future<void> _geocodeAddresses() async {
-    _geocoding = true;
-    final delivery = '${_order['address'] ?? ''}';
-    final pickup = _pickupAddress;
-
-    if (delivery.isNotEmpty) {
-      _deliveryCoord = await _geocode(delivery);
-    }
-    if (pickup.isNotEmpty && pickup != delivery) {
-      _pickupCoord = await _geocode(pickup);
-    }
-    if (mounted) setState(() {});
-    _geocoding = false;
-  }
-
-  Future<LatLng> _geocode(String address) async {
-    try {
-      final results = await locationFromAddress('$address, Chile');
-      if (results.isNotEmpty) {
-        return LatLng(results.first.latitude, results.first.longitude);
-      }
-    } catch (_) {}
-    final hash = address.codeUnits.fold<int>(0, (s, v) => s + v);
-    return LatLng(
-      -33.4372 + ((hash % 17) - 8) * 0.002,
-      -70.6506 + ((hash % 23) - 11) * 0.002,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -187,7 +151,10 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         const SizedBox(height: 20),
         _StatusTimeline(currentStep: _currentStep),
         const SizedBox(height: 22),
-        _TrackingMap(pickupCoord: _pickupCoord, deliveryCoord: _deliveryCoord),
+        _TrackingMap(
+          pickupAddress: _pickupAddress,
+          deliveryAddress: '${_order['address'] ?? ''}',
+        ),
         const SizedBox(height: 18),
         _InfoCard(
           icon: Icons.location_on_outlined,
@@ -431,10 +398,13 @@ class _StepDot extends StatelessWidget {
 // ─── Tracking map ─────────────────────────────────────────────────────────────
 
 class _TrackingMap extends StatelessWidget {
-  final LatLng? pickupCoord;
-  final LatLng? deliveryCoord;
+  final String pickupAddress;
+  final String deliveryAddress;
 
-  const _TrackingMap({required this.pickupCoord, required this.deliveryCoord});
+  const _TrackingMap({
+    required this.pickupAddress,
+    required this.deliveryAddress,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -460,8 +430,8 @@ class _TrackingMap extends StatelessWidget {
           child: SizedBox(
             height: 220,
             child: MapTrackingWidget(
-              pickupLocation: pickupCoord,
-              deliveryLocation: deliveryCoord,
+              pickupAddress: pickupAddress,
+              deliveryAddress: deliveryAddress,
             ),
           ),
         ),
