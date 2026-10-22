@@ -5,9 +5,4 @@ class Environment {
     'API_BASE_URL',
     defaultValue: 'http://10.0.2.2:3000',
   );
-
-  static const bool useDemoMode = bool.fromEnvironment(
-    'USE_DEMO_MODE',
-    defaultValue: false,
-  );
 }

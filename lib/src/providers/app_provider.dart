@@ -1,20 +1,30 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/connection_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
 
 class AppProvider {
   final String _base = Environment.apiUrl;
-  final GetStorage _storage = GetStorage();
 
-  Map<String, String> get _headers {
-    final token = _storage.read('token')?.toString();
-    return {
-      'Content-Type': 'application/json',
-      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-    };
+  Future<Map<String, String>> get _headers =>
+      SessionManager.instance.authorizedHeaders();
+
+  Future<http.Response> _send(Future<http.Response> request) async {
+    try {
+      final response = await request.timeout(const Duration(seconds: 15));
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        ConnectionService.instance.markOnline();
+      } else {
+        ConnectionService.instance.markOffline();
+      }
+      return response;
+    } catch (_) {
+      ConnectionService.instance.markOffline();
+      rethrow;
+    }
   }
 
   dynamic _body(http.Response response) {
@@ -33,9 +43,9 @@ class AppProvider {
 
   Future<List<Map<String, dynamic>>> getProducts() async {
     final responses = await Future.wait([
-      http.get(Uri.parse('$_base/catalog/products')),
-      http.get(Uri.parse('$_base/catalog/restaurants')),
-      http.get(Uri.parse('$_base/catalog/categories')),
+      _send(http.get(Uri.parse('$_base/catalog/products'))),
+      _send(http.get(Uri.parse('$_base/catalog/restaurants'))),
+      _send(http.get(Uri.parse('$_base/catalog/categories'))),
     ]);
     final products = List<Map<String, dynamic>>.from(_body(responses[0]) ?? []);
     final restaurants = List<Map<String, dynamic>>.from(
@@ -57,13 +67,11 @@ class AppProvider {
       return {
         ...product,
         'categoryName':
-            product['categoryName'] ??
-            category?['name'] ??
-            'Sin categoría',
+            product['categoryName'] ?? category?['name'] ?? 'Sin categoría',
         'restaurantName':
             product['restaurantName'] ??
             restaurant?['name'] ??
-            'Restaurante ${product['restaurantId'] ?? ''}',
+            'Comercio ${product['restaurantId'] ?? ''}',
         'restaurantAddress':
             product['restaurantAddress'] ?? restaurant?['address'],
       };
@@ -74,26 +82,25 @@ class AppProvider {
     // Orders currently exposes user_id as UUID, while Auth emits a numeric
     // userId. The authenticated identity is already carried by the JWT, so
     // avoid sending an incompatible query parameter from the mobile client.
-    final uri = Uri.parse('$_base/api/orders').replace(
-      queryParameters: view == null ? null : {'view': view},
-    );
-    final res = await http.get(
-      uri,
-      headers: _headers,
-    );
+    final uri = Uri.parse(
+      '$_base/api/orders',
+    ).replace(queryParameters: view == null ? null : {'view': view});
+    final res = await _send(http.get(uri, headers: await _headers));
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
   Future<List<Map<String, dynamic>>> getDeliveryRoutes() async {
-    final res = await http.get(
-      Uri.parse('$_base/api/delivery/routes'),
-      headers: _headers,
+    final res = await _send(
+      http.get(
+        Uri.parse('$_base/api/delivery/routes'),
+        headers: await _headers,
+      ),
     );
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
   Future<List<Map<String, dynamic>>> getRestaurants() async {
-    final res = await http.get(Uri.parse('$_base/catalog/restaurants'));
+    final res = await _send(http.get(Uri.parse('$_base/catalog/restaurants')));
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
@@ -104,7 +111,7 @@ class AppProvider {
     final uri = Uri.parse('$_base/api/orders/available-for-delivery').replace(
       queryParameters: {'restaurant_id': '$restaurantId', 'limit': '$limit'},
     );
-    final res = await http.get(uri, headers: _headers);
+    final res = await _send(http.get(uri, headers: await _headers));
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
@@ -117,57 +124,64 @@ class AppProvider {
     double? distanceKm,
     int? estimatedMinutes,
   }) async {
-    final res = await http.post(
-      Uri.parse('$_base/api/orders'),
-      headers: _headers,
-      body: jsonEncode({
-        if (productId != null) 'product_id': productId,
-        'quantity': quantity,
-        if (items != null)
-          'items': items
-              .map((item) => {...item, 'product_id': item['product_id']})
-              .toList(),
-        'address': address,
-        'payment_method': paymentMethod,
-        if (distanceKm != null) 'distance_km': distanceKm,
-        if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
-      }),
+    final res = await _send(
+      http.post(
+        Uri.parse('$_base/api/orders'),
+        headers: await _headers,
+        body: jsonEncode({
+          if (productId != null) 'product_id': productId,
+          'quantity': quantity,
+          if (items != null)
+            'items': items
+                .map((item) => {...item, 'product_id': item['product_id']})
+                .toList(),
+          'address': address,
+          'payment_method': paymentMethod,
+          if (distanceKm != null) 'distance_km': distanceKm,
+          if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
+        }),
+      ),
     );
     return _response(res);
   }
 
   Future<Map<String, dynamic>> getOrderDetail(Object orderId) async {
-    final res = await http.get(
-      Uri.parse('$_base/api/orders/$orderId'),
-      headers: _headers,
+    final res = await _send(
+      http.get(
+        Uri.parse('$_base/api/orders/$orderId'),
+        headers: await _headers,
+      ),
     );
     return Map<String, dynamic>.from(_body(res) ?? {});
   }
 
-  Future<ResponseApi> updateOrderStatus(Object orderId, String status) async {
-    final res = await http.put(
-      Uri.parse('$_base/api/orders/$orderId/status'),
-      headers: _headers,
-      body: jsonEncode({'status': status}),
+  Future<ResponseApi> updateOrderStatus(
+    Object orderId,
+    String status, {
+    String? deliveryPin,
+  }) async {
+    final res = await _send(
+      http.put(
+        Uri.parse('$_base/api/orders/$orderId/status'),
+        headers: await _headers,
+        body: jsonEncode({
+          'status': status,
+          if (deliveryPin != null && deliveryPin.isNotEmpty)
+            'delivery_pin': deliveryPin,
+        }),
+      ),
     );
     return _response(res);
   }
 
   Future<ResponseApi> claimDeliveryOrders({required List<int> orderIds}) async {
-    final res = await http.post(
-      Uri.parse('$_base/api/delivery/claim'),
-      headers: _headers,
-      // Delivery derives the courier from the JWT. Its public DTO is camelCase.
-      body: jsonEncode({'orderIds': orderIds}),
-    );
-    return _response(res);
-  }
-
-  Future<ResponseApi> updateRouteStatus(int routeId, String status) async {
-    final res = await http.put(
-      Uri.parse('$_base/api/delivery/routes/$routeId/status'),
-      headers: _headers,
-      body: jsonEncode({'status': status}),
+    final res = await _send(
+      http.post(
+        Uri.parse('$_base/api/delivery/claim'),
+        headers: await _headers,
+        // Delivery derives the courier from the JWT. Its public DTO is camelCase.
+        body: jsonEncode({'orderIds': orderIds}),
+      ),
     );
     return _response(res);
   }

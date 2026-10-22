@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/address/address_selector_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/list/client_orders_list_widget.dart';
@@ -19,14 +19,16 @@ class ClientProductsListPage extends StatefulWidget {
 }
 
 class _ClientProductsListPageState extends State<ClientProductsListPage> {
+  static const _allFilter = 'Todos';
+
   final HomeController con = Get.put(HomeController());
   final AppProvider appProvider = AppProvider();
   final TextEditingController searchController = TextEditingController();
 
   List<Map<String, dynamic>> products = [];
   final Map<int, int> cart = {};
-  String selectedCategory = 'Todos';
-  String selectedRestaurant = 'Todos';
+  String selectedCategory = _allFilter;
+  String selectedRestaurant = _allFilter;
   bool isLoading = true;
   String? errorMessage;
   int _selectedTab = 0;
@@ -72,6 +74,12 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
       final data = await appProvider.getProducts();
       setState(() {
         products = data;
+        if (!categories.contains(selectedCategory)) {
+          selectedCategory = _allFilter;
+        }
+        if (!restaurants.contains(selectedRestaurant)) {
+          selectedRestaurant = _allFilter;
+        }
         isLoading = false;
       });
     } catch (e) {
@@ -84,42 +92,118 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
 
   List<String> get categories {
     final names =
-        products
+        availableProducts
             .map((p) => '${p['categoryName'] ?? 'Sin categoría'}')
             .toSet()
             .toList()
           ..sort();
-    return ['Todos', ...names];
+    return [_allFilter, ...names];
   }
 
   List<String> get restaurants {
     final names =
-        products
+        availableProducts
             .map((p) => '${p['restaurantName'] ?? 'Sin local'}')
             .toSet()
             .toList()
           ..sort();
-    return ['Todos', ...names];
+    return [_allFilter, ...names];
   }
+
+  List<Map<String, dynamic>> get availableProducts =>
+      products.where(_isAvailableForOrder).toList(growable: false);
 
   List<Map<String, dynamic>> get filteredProducts {
     final query = searchController.text.trim().toLowerCase();
-    return products.where((product) {
-      final name = '${product['name'] ?? ''}'.toLowerCase();
-      final restaurant = '${product['restaurantName'] ?? ''}'.toLowerCase();
-      final category = '${product['categoryName'] ?? 'Sin categoría'}';
-      final matchesText =
-          query.isEmpty ||
-          name.contains(query) ||
-          restaurant.contains(query) ||
-          category.toLowerCase().contains(query);
-      final matchesCategory =
-          selectedCategory == 'Todos' || category == selectedCategory;
-      final matchesRestaurant =
-          selectedRestaurant == 'Todos' ||
-          restaurant == selectedRestaurant.toLowerCase();
-      return matchesText && matchesCategory && matchesRestaurant;
-    }).toList();
+    final filtered =
+        availableProducts.where((product) {
+          final name = '${product['name'] ?? ''}'.toLowerCase();
+          final restaurant = '${product['restaurantName'] ?? ''}'.toLowerCase();
+          final category = '${product['categoryName'] ?? 'Sin categoría'}';
+          final matchesText =
+              query.isEmpty ||
+              name.contains(query) ||
+              restaurant.contains(query) ||
+              category.toLowerCase().contains(query);
+          final matchesCategory =
+              selectedCategory == _allFilter || category == selectedCategory;
+          final matchesRestaurant =
+              selectedRestaurant == _allFilter ||
+              restaurant == selectedRestaurant.toLowerCase();
+          return matchesText && matchesCategory && matchesRestaurant;
+        }).toList()..sort((a, b) {
+          final byRestaurant = '${a['restaurantName'] ?? ''}'.compareTo(
+            '${b['restaurantName'] ?? ''}',
+          );
+          if (byRestaurant != 0) return byRestaurant;
+          final byCategory = '${a['categoryName'] ?? ''}'.compareTo(
+            '${b['categoryName'] ?? ''}',
+          );
+          if (byCategory != 0) return byCategory;
+          return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+        });
+    return filtered;
+  }
+
+  bool _isAvailableForOrder(Map<String, dynamic> product) {
+    final raw = product['isAvailable'] ?? product['is_available'];
+    if (raw == null) return true;
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    return ![
+      'false',
+      '0',
+      'no',
+      'agotado',
+      'inactive',
+    ].contains(raw.toString().trim().toLowerCase());
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupByRestaurant(
+    List<Map<String, dynamic>> source,
+  ) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final product in source) {
+      final restaurantId = product['restaurantId']?.toString();
+      final restaurantName = '${product['restaurantName'] ?? 'Comercio'}';
+      final key = restaurantId?.isNotEmpty == true
+          ? restaurantId!
+          : restaurantName;
+      grouped.putIfAbsent(key, () => []).add(product);
+    }
+    return grouped;
+  }
+
+  bool get _hasActiveFilters =>
+      searchController.text.trim().isNotEmpty ||
+      selectedCategory != _allFilter ||
+      selectedRestaurant != _allFilter;
+
+  bool get _showRestaurantDirectory =>
+      selectedRestaurant == _allFilter &&
+      selectedCategory == _allFilter &&
+      searchController.text.trim().isEmpty;
+
+  List<List<Map<String, dynamic>>> get _restaurantGroups {
+    final groups = _groupByRestaurant(availableProducts).values.toList()
+      ..sort(
+        (a, b) => '${a.first['restaurantName'] ?? ''}'.compareTo(
+          '${b.first['restaurantName'] ?? ''}',
+        ),
+      );
+    return groups;
+  }
+
+  void _selectRestaurant(String restaurant) {
+    setState(() => selectedRestaurant = restaurant);
+  }
+
+  void _clearFilters() {
+    setState(() {
+      searchController.clear();
+      selectedCategory = _allFilter;
+      selectedRestaurant = _allFilter;
+    });
   }
 
   List<Map<String, dynamic>> get cartProducts =>
@@ -212,55 +296,132 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     }
 
     final filtered = filteredProducts;
+    final grouped = _groupByRestaurant(filtered);
+    final showRestaurantDirectory = _showRestaurantDirectory;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
         _AddressBar(address: _selectedAddress, onTap: _openAddressSelector),
         const SizedBox(height: 10),
-        _HeroSearch(controller: searchController, total: products.length),
+        _HeroSearch(
+          controller: searchController,
+          total: showRestaurantDirectory
+              ? _restaurantGroups.length
+              : filtered.length,
+          showingRestaurants: showRestaurantDirectory,
+        ),
         const SizedBox(height: 16),
-        _CategoryFilters(
-          categories: categories,
-          selected: selectedCategory,
-          onSelected: (value) => setState(() => selectedCategory = value),
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          'Filtrar por local',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 8),
-        _CategoryFilters(
-          categories: restaurants,
-          selected: selectedRestaurant,
-          onSelected: (value) => setState(() => selectedRestaurant = value),
-        ),
-        const SizedBox(height: 18),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Productos disponibles',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            Text('${filtered.length} items'),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (filtered.isEmpty)
-          const _EmptyProducts()
-        else
-          ...filtered.map(
-            (product) => _ProductCard(
-              product: product,
-              quantity: cart[product['id']] ?? 0,
-              onAdd: () => _addToCart(product),
-              onRemove: () => _changeQuantity(product, -1),
-            ),
+        if (showRestaurantDirectory) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Elige un comercio',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+              ),
+              Text(
+                '${_restaurantGroups.length} disponibles',
+                style: const TextStyle(color: Color(0xFF6A6F77)),
+              ),
+            ],
           ),
+          const SizedBox(height: 4),
+          const Text(
+            'Entra a un comercio para revisar su menú.',
+            style: TextStyle(color: Color(0xFF6A6F77)),
+          ),
+          const SizedBox(height: 12),
+          if (_restaurantGroups.isEmpty)
+            _EmptyProducts(hasActiveFilters: false, onClear: _clearFilters)
+          else
+            ..._restaurantGroups.map(
+              (restaurantProducts) => _RestaurantStoreCard(
+                products: restaurantProducts,
+                onTap: () => _selectRestaurant(
+                  '${restaurantProducts.first['restaurantName'] ?? 'Comercio'}',
+                ),
+              ),
+            ),
+        ] else ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  selectedRestaurant == _allFilter
+                      ? 'Resultados por comercio'
+                      : selectedRestaurant,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.storefront_outlined, size: 18),
+                label: const Text('Comercios'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _CategoryFilters(
+            categories: categories,
+            selected: selectedCategory,
+            onSelected: (value) => setState(() => selectedCategory = value),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Filtrar por comercio',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (_hasActiveFilters)
+                TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                  label: const Text('Limpiar'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _CategoryFilters(
+            categories: restaurants,
+            selected: selectedRestaurant,
+            onSelected: (value) => setState(() => selectedRestaurant = value),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Productos disponibles',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              Text('${filtered.length} items'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (filtered.isEmpty)
+            _EmptyProducts(
+              hasActiveFilters: _hasActiveFilters,
+              onClear: _clearFilters,
+            )
+          else
+            ...grouped.values.map(
+              (restaurantProducts) => _RestaurantProductSection(
+                products: restaurantProducts,
+                cart: cart,
+                onAdd: _addToCart,
+                onRemove: (product) => _changeQuantity(product, -1),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -269,7 +430,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     if (cartProducts.isNotEmpty &&
         cartProducts.first['restaurantId'] != product['restaurantId']) {
       Get.snackbar(
-        'Otro restaurante',
+        'Otro comercio',
         'Finaliza o vacía el pedido actual antes de comprar en otro local.',
         snackPosition: SnackPosition.BOTTOM,
       );
@@ -316,6 +477,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           // Keep the checkout height stable and lift it above the keyboard.
           // The cart list remains scrollable on smaller phone screens.
           final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+          final navigationBar = MediaQuery.viewPaddingOf(context).bottom;
           final maxHeight = MediaQuery.of(context).size.height * 0.88;
 
           return AnimatedPadding(
@@ -325,7 +487,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
             child: SizedBox(
               height: maxHeight,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                padding: EdgeInsets.fromLTRB(18, 10, 18, 14 + navigationBar),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -563,19 +725,11 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     try {
       // Geocoding is a convenience for the estimate, never a reason to leave
       // checkout blocked when the third-party geocoder is unavailable.
-      final pickup = await locationFromAddress(
-        '$pickupAddress, Chile',
-      ).timeout(const Duration(seconds: 5));
-      final delivery = await locationFromAddress(
-        '$deliveryAddress, Chile',
-      ).timeout(const Duration(seconds: 5));
-      if (pickup.isNotEmpty && delivery.isNotEmpty) {
+      final pickup = await RegisteredAddressResolver.resolve(pickupAddress);
+      final delivery = await RegisteredAddressResolver.resolve(deliveryAddress);
+      if (pickup != null && delivery != null) {
         const calculator = Distance();
-        final directKm = calculator.as(
-          LengthUnit.Kilometer,
-          LatLng(pickup.first.latitude, pickup.first.longitude),
-          LatLng(delivery.first.latitude, delivery.first.longitude),
-        );
+        final directKm = calculator.as(LengthUnit.Kilometer, pickup, delivery);
         final roadKm = (directKm * 1.25).clamp(0.5, 80.0).toDouble();
         final minutes = ((roadKm / 22) * 60 + 8).round().clamp(10, 180);
         return (double.parse(roadKm.toStringAsFixed(2)), minutes);
@@ -590,8 +744,13 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
 class _HeroSearch extends StatelessWidget {
   final TextEditingController controller;
   final int total;
+  final bool showingRestaurants;
 
-  const _HeroSearch({required this.controller, required this.total});
+  const _HeroSearch({
+    required this.controller,
+    required this.total,
+    required this.showingRestaurants,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -615,7 +774,11 @@ class _HeroSearch extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text('$total opciones disponibles cerca de ti'),
+          Text(
+            showingRestaurants
+                ? '$total comercios disponibles para pedir'
+                : '$total productos disponibles para pedir',
+          ),
           const SizedBox(height: 14),
           TextField(
             controller: controller,
@@ -730,7 +893,13 @@ class _ProductCard extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                Text('${product['restaurantName'] ?? ''}'),
+                if ('${product['description'] ?? ''}'.trim().isNotEmpty)
+                  Text(
+                    '${product['description']}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF6A6F77)),
+                  ),
                 const SizedBox(height: 6),
                 Text(
                   price,
@@ -752,6 +921,205 @@ class _ProductCard extends StatelessWidget {
               onRemove: onRemove,
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _RestaurantProductSection extends StatelessWidget {
+  final List<Map<String, dynamic>> products;
+  final Map<int, int> cart;
+  final ValueChanged<Map<String, dynamic>> onAdd;
+  final ValueChanged<Map<String, dynamic>> onRemove;
+
+  const _RestaurantProductSection({
+    required this.products,
+    required this.cart,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final first = products.first;
+    final name = '${first['restaurantName'] ?? 'Comercio'}';
+    final address = '${first['restaurantAddress'] ?? ''}'.trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5EE),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.storefront_outlined,
+                  color: Color(0xFF12643D),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      address.isEmpty
+                          ? '${products.length} productos disponibles'
+                          : address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF6A6F77),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${products.length}',
+                style: const TextStyle(
+                  color: Color(0xFF6A6F77),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...products.map(
+            (product) => _ProductCard(
+              product: product,
+              quantity: cart[product['id']] ?? 0,
+              onAdd: () => onAdd(product),
+              onRemove: () => onRemove(product),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RestaurantStoreCard extends StatelessWidget {
+  final List<Map<String, dynamic>> products;
+  final VoidCallback onTap;
+
+  const _RestaurantStoreCard({required this.products, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final first = products.first;
+    final name = '${first['restaurantName'] ?? 'Comercio'}';
+    final address = '${first['restaurantAddress'] ?? ''}'.trim();
+    final categories = products
+        .map((product) => '${product['categoryName'] ?? ''}'.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .join(' · ');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5EE),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.storefront_outlined,
+                  size: 27,
+                  color: Color(0xFF12643D),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (address.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        address,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6A6F77),
+                        ),
+                      ),
+                    ],
+                    if (categories.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        categories,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF0E8C58),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 7),
+                    Text(
+                      '${products.length} productos disponibles',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF12643D)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -967,7 +1335,10 @@ class _ProductImage extends StatelessWidget {
 }
 
 class _EmptyProducts extends StatelessWidget {
-  const _EmptyProducts();
+  final bool hasActiveFilters;
+  final VoidCallback onClear;
+
+  const _EmptyProducts({required this.hasActiveFilters, required this.onClear});
 
   @override
   Widget build(BuildContext context) {
@@ -977,11 +1348,24 @@ class _EmptyProducts extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
       ),
-      child: const Column(
+      child: Column(
         children: [
           Icon(Icons.search_off, size: 42),
           SizedBox(height: 10),
-          Text('No hay productos para esta búsqueda'),
+          Text(
+            hasActiveFilters
+                ? 'No encontramos productos con esos filtros'
+                : 'No hay productos disponibles por ahora',
+            textAlign: TextAlign.center,
+          ),
+          if (hasActiveFilters) ...[
+            SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: onClear,
+              icon: Icon(Icons.filter_alt_off_outlined),
+              label: Text('Limpiar filtros'),
+            ),
+          ],
         ],
       ),
     );

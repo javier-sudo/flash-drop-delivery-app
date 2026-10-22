@@ -63,11 +63,9 @@ class LoginPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'App multirol para clientes, restaurantes y repartidores.',
+                        'App multirol para clientes, comercios y repartidores.',
                       ),
                       const SizedBox(height: 22),
-                      _DemoBadge(),
-                      const SizedBox(height: 18),
                       _TextFieldBox(
                         controller: con.emailController,
                         hint: 'Correo electronico',
@@ -116,30 +114,6 @@ class LoginPage extends StatelessWidget {
                   ],
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DemoBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.info_outline, color: Color(0xFFFFA000), size: 20),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Puedes usar admin@demo.cl / 123456 si cargaste database.sql.',
             ),
           ),
         ],

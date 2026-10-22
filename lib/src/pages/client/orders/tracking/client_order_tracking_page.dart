@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
 
 class ClientOrderTrackingPage extends StatefulWidget {
@@ -45,6 +48,11 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     }
     try {
       final detail = await _appProvider.getOrderDetail(_orderId);
+      await LocalNotificationsService.instance.observeOrders(
+        scope: 'client',
+        orders: [detail],
+        notify: silent,
+      );
       if (!mounted) return;
       setState(() {
         _order = detail;
@@ -66,7 +74,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     _timer?.cancel();
     if (!_isDelivered) {
       _timer = Timer.periodic(
-        const Duration(seconds: 20),
+        const Duration(seconds: 15),
         (_) => _loadOrder(silent: true),
       );
     }
@@ -75,11 +83,22 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   bool get _isDelivered =>
       '${_order['status']}'.toLowerCase().contains('entregado');
 
+  String? get _deliveryPin {
+    final value =
+        _order['deliveryPin'] ??
+        _order['delivery_pin'] ??
+        _order['verificationCode'] ??
+        _order['verification_code'];
+    final pin = value?.toString().trim();
+    return pin != null && RegExp(r'^\d{4,6}$').hasMatch(pin) ? pin : null;
+  }
+
   int get _currentStep {
     final s = '${_order['status']}'.toLowerCase();
-    if (s.contains('entregado')) return 3;
-    if (s.contains('camino')) return 2;
-    if (s.contains('listo') || s.contains('preparando')) return 1;
+    if (s.contains('entregado')) return 4;
+    if (s.contains('camino')) return 3;
+    if (s.contains('listo')) return 2;
+    if (s.contains('preparando')) return 1;
     return 0;
   }
 
@@ -100,6 +119,24 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
       if (addr.isNotEmpty) return addr;
     }
     return '';
+  }
+
+  LatLng? get _registeredDeliveryCoordinates {
+    final saved = GetStorage().read('delivery_address');
+    if (saved is! Map) return null;
+
+    final savedAddress = saved['address']?.toString().trim().toLowerCase();
+    final orderAddress = _order['address']?.toString().trim().toLowerCase();
+    if (savedAddress == null ||
+        savedAddress.isEmpty ||
+        savedAddress != orderAddress) {
+      return null;
+    }
+
+    final lat = (saved['lat'] as num?)?.toDouble();
+    final lng = (saved['lng'] as num?)?.toDouble();
+    if (lat == null || lng == null) return null;
+    return LatLng(lat, lng);
   }
 
   @override
@@ -145,7 +182,12 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     final items = List<Map<String, dynamic>>.from(_order['items'] ?? []);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        32 + MediaQuery.viewPaddingOf(context).bottom,
+      ),
       children: [
         _StatusHeader(statusText: '${_order['status']}', step: _currentStep),
         const SizedBox(height: 20),
@@ -154,8 +196,13 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         _TrackingMap(
           pickupAddress: _pickupAddress,
           deliveryAddress: '${_order['address'] ?? ''}',
+          deliveryCoordinates: _registeredDeliveryCoordinates,
         ),
         const SizedBox(height: 18),
+        if (_currentStep == 3 && _deliveryPin != null) ...[
+          _DeliveryPinCard(pin: _deliveryPin!),
+          const SizedBox(height: 12),
+        ],
         _InfoCard(
           icon: Icons.location_on_outlined,
           title: 'Dirección de entrega',
@@ -191,6 +238,58 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         const SizedBox(height: 4),
         _TotalRow(label: 'Total', value: _order['total'], strong: true),
       ],
+    );
+  }
+}
+
+class _DeliveryPinCard extends StatelessWidget {
+  final String pin;
+
+  const _DeliveryPinCard({required this.pin});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF3FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB7CEFA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.verified_user_outlined, color: Color(0xFF1769C2)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Código de entrega',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Compártelo solo cuando recibas el pedido.',
+                  style: TextStyle(
+                    color: Colors.black.withValues(alpha: 0.68),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            pin,
+            style: const TextStyle(
+              letterSpacing: 2,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF1769C2),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -252,7 +351,7 @@ class _StatusHeader extends StatelessWidget {
         Icons.receipt_long_outlined,
         const Color(0xFF1769C2),
         const Color(0xFFEEF3FF),
-        'El restaurante recibió tu pedido.',
+        'El comercio recibió tu pedido.',
       ),
       1 => (
         Icons.soup_kitchen_outlined,
@@ -261,6 +360,12 @@ class _StatusHeader extends StatelessWidget {
         'El local está preparando tu pedido.',
       ),
       2 => (
+        Icons.inventory_2_outlined,
+        const Color(0xFF8A5700),
+        const Color(0xFFFFF8E1),
+        'Tu pedido está listo; un repartidor lo retirará pronto.',
+      ),
+      3 => (
         Icons.delivery_dining,
         const Color(0xFF1565C0),
         const Color(0xFFE8F0FE),
@@ -286,6 +391,7 @@ class _StatusTimeline extends StatelessWidget {
   static const _steps = [
     (Icons.receipt_long_outlined, 'Recibido'),
     (Icons.soup_kitchen_outlined, 'Preparando'),
+    (Icons.inventory_2_outlined, 'Listo para retiro'),
     (Icons.delivery_dining, 'En camino'),
     (Icons.check_circle_outline, 'Entregado'),
   ];
@@ -361,36 +467,45 @@ class _StepDot extends StatelessWidget {
       iconColor = const Color(0xFF9EA5AD);
     }
 
-    return Column(
-      children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          width: active ? 48 : 38,
-          height: active ? 48 : 38,
-          decoration: BoxDecoration(
-            color: bg,
-            shape: BoxShape.circle,
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFFFFB300).withValues(alpha: 0.45),
-                      blurRadius: 12,
-                    ),
-                  ]
-                : null,
+    return SizedBox(
+      width: 54,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: active ? 48 : 38,
+            height: active ? 48 : 38,
+            decoration: BoxDecoration(
+              color: bg,
+              shape: BoxShape.circle,
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFFFB300).withValues(alpha: 0.45),
+                        blurRadius: 12,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Icon(icon, color: iconColor, size: active ? 24 : 18),
           ),
-          child: Icon(icon, color: iconColor, size: active ? 24 : 18),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w900 : FontWeight.w400,
-            color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 24,
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w900 : FontWeight.w400,
+                color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -400,10 +515,12 @@ class _StepDot extends StatelessWidget {
 class _TrackingMap extends StatelessWidget {
   final String pickupAddress;
   final String deliveryAddress;
+  final LatLng? deliveryCoordinates;
 
   const _TrackingMap({
     required this.pickupAddress,
     required this.deliveryAddress,
+    this.deliveryCoordinates,
   });
 
   @override
@@ -419,7 +536,7 @@ class _TrackingMap extends StatelessWidget {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
-            _LegendItem(color: const Color(0xFF16824B), label: 'Restaurante'),
+            _LegendItem(color: const Color(0xFF16824B), label: 'Comercio'),
             const SizedBox(width: 12),
             _LegendItem(color: const Color(0xFF1769C2), label: 'Tu dirección'),
           ],
@@ -432,6 +549,7 @@ class _TrackingMap extends StatelessWidget {
             child: MapTrackingWidget(
               pickupAddress: pickupAddress,
               deliveryAddress: deliveryAddress,
+              deliveryCoordinates: deliveryCoordinates,
             ),
           ),
         ),

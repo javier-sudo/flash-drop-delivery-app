@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 
 class ClientOrdersListWidget extends StatefulWidget {
   const ClientOrdersListWidget({super.key});
@@ -17,6 +18,7 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
   String? _error;
+  _ClientOrderFilter _filter = _ClientOrderFilter.active;
   Timer? _refreshTimer;
 
   @override
@@ -24,7 +26,7 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     super.initState();
     _loadOrders();
     _refreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (_) => _loadOrders(silent: true),
     );
   }
@@ -44,6 +46,11 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     }
     try {
       final data = await _appProvider.getOrders(view: 'client');
+      await LocalNotificationsService.instance.observeOrders(
+        scope: 'client',
+        orders: data,
+        notify: silent,
+      );
       if (!mounted) return;
       setState(() {
         _orders = data;
@@ -85,55 +92,71 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     if (_orders.isEmpty) return const _EmptyState();
 
     final active =
-        _orders.where((o) => !_OrderStatus.of('${o['status']}').isDelivered).toList();
+        _orders
+            .where((o) => !_OrderStatus.of('${o['status']}').isDelivered)
+            .toList()
+          ..sort(_compareOrders);
     final history =
-        _orders.where((o) => _OrderStatus.of('${o['status']}').isDelivered).toList();
+        _orders
+            .where((o) => _OrderStatus.of('${o['status']}').isDelivered)
+            .toList()
+          ..sort((a, b) => _orderTime(b).compareTo(_orderTime(a)));
+    final visible = switch (_filter) {
+      _ClientOrderFilter.all => [
+        ..._orders,
+      ]..sort((a, b) => _orderTime(b).compareTo(_orderTime(a))),
+      _ClientOrderFilter.active => active,
+      _ClientOrderFilter.delivered => history,
+    };
 
     return RefreshIndicator(
       onRefresh: _loadOrders,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          32 + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [
-          if (active.isNotEmpty) ...[
-            _SectionLabel(
-              title: 'En curso',
-              count: active.length,
-              dot: const Color(0xFF1769C2),
-            ),
-            const SizedBox(height: 10),
-            ...active.map(
+          _SectionLabel(
+            title: _filter == _ClientOrderFilter.delivered
+                ? 'Historial'
+                : 'Tus pedidos',
+            count: visible.length,
+            dot: _filter == _ClientOrderFilter.delivered
+                ? const Color(0xFF9EA5AD)
+                : const Color(0xFF1769C2),
+          ),
+          const SizedBox(height: 12),
+          _ClientOrderFilterBar(
+            selected: _filter,
+            activeCount: active.length,
+            deliveredCount: history.length,
+            onChanged: (filter) => setState(() => _filter = filter),
+          ),
+          const SizedBox(height: 16),
+          if (visible.isEmpty)
+            _FilteredEmptyState(filter: _filter)
+          else
+            ...visible.map(
               (o) => _OrderCard(
                 order: o,
-                onTap: () => Get.toNamed(
-                  '/client/orders/tracking',
-                  arguments: o['id'],
-                ),
+                onTap: () =>
+                    Get.toNamed('/client/orders/tracking', arguments: o['id']),
               ),
             ),
-            const SizedBox(height: 22),
-          ],
-          if (history.isNotEmpty) ...[
-            _SectionLabel(
-              title: 'Historial',
-              count: history.length,
-              dot: const Color(0xFF9EA5AD),
-            ),
-            const SizedBox(height: 10),
-            ...history.map(
-              (o) => _OrderCard(
-                order: o,
-                onTap: () => Get.toNamed(
-                  '/client/orders/tracking',
-                  arguments: o['id'],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
+
+  int _compareOrders(Map<String, dynamic> a, Map<String, dynamic> b) {
+    return _orderTime(b).compareTo(_orderTime(a));
+  }
 }
+
+enum _ClientOrderFilter { all, active, delivered }
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -152,19 +175,26 @@ class _OrderStatus {
     final s = status.toLowerCase();
     if (s.contains('entregado')) {
       return const _OrderStatus(
-        step: 3,
+        step: 4,
         isDelivered: true,
         color: Color(0xFF12643D),
       );
     }
-    if (s.contains('camino')) {
+    if (s.contains('camino') || s.contains('retirado')) {
       return const _OrderStatus(
-        step: 2,
+        step: 3,
         isDelivered: false,
         color: Color(0xFF1565C0),
       );
     }
-    if (s.contains('listo') || s.contains('preparando')) {
+    if (s.contains('listo')) {
+      return const _OrderStatus(
+        step: 2,
+        isDelivered: false,
+        color: Color(0xFF8A5700),
+      );
+    }
+    if (s.contains('preparando')) {
       return const _OrderStatus(
         step: 1,
         isDelivered: false,
@@ -214,6 +244,78 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+class _ClientOrderFilterBar extends StatelessWidget {
+  final _ClientOrderFilter selected;
+  final int activeCount;
+  final int deliveredCount;
+  final ValueChanged<_ClientOrderFilter> onChanged;
+
+  const _ClientOrderFilterBar({
+    required this.selected,
+    required this.activeCount,
+    required this.deliveredCount,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _ClientFilterChip(
+            label: 'Todos',
+            selected: selected == _ClientOrderFilter.all,
+            onTap: () => onChanged(_ClientOrderFilter.all),
+          ),
+          const SizedBox(width: 8),
+          _ClientFilterChip(
+            label: 'En curso · $activeCount',
+            selected: selected == _ClientOrderFilter.active,
+            onTap: () => onChanged(_ClientOrderFilter.active),
+          ),
+          const SizedBox(width: 8),
+          _ClientFilterChip(
+            label: 'Entregados · $deliveredCount',
+            selected: selected == _ClientOrderFilter.delivered,
+            onTap: () => onChanged(_ClientOrderFilter.delivered),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ClientFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: (_) => onTap(),
+      labelStyle: TextStyle(
+        color: selected ? const Color(0xFF0F5132) : const Color(0xFF565C64),
+        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+      ),
+      selectedColor: const Color(0xFFDFF6E8),
+      side: BorderSide(
+        color: selected ? const Color(0xFF12643D) : const Color(0xFFD7D9DD),
+      ),
+    );
+  }
+}
+
 class _OrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final VoidCallback onTap;
@@ -223,7 +325,7 @@ class _OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _OrderStatus.of('${order['status']}');
-    final restaurant = '${order['restaurantName'] ?? 'Restaurante'}';
+    final restaurant = '${order['restaurantName'] ?? 'Comercio'}';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -342,10 +444,17 @@ class _MiniTimeline extends StatelessWidget {
 
   const _MiniTimeline({required this.step});
 
-  static const _labels = ['Recibido', 'Preparando', 'En camino', 'Entregado'];
+  static const _labels = [
+    'Recibido',
+    'Preparando',
+    'Listo',
+    'En camino',
+    'Entregado',
+  ];
   static const _icons = [
     Icons.receipt_long_outlined,
     Icons.soup_kitchen_outlined,
+    Icons.inventory_2_outlined,
     Icons.delivery_dining,
     Icons.home_outlined,
   ];
@@ -374,8 +483,7 @@ class _MiniTimeline extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 9,
-                  fontWeight:
-                      active ? FontWeight.w900 : FontWeight.w400,
+                  fontWeight: active ? FontWeight.w900 : FontWeight.w400,
                   color: done
                       ? const Color(0xFF2C2C2C)
                       : const Color(0xFFB0B5BB),
@@ -429,6 +537,29 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FilteredEmptyState extends StatelessWidget {
+  final _ClientOrderFilter filter;
+
+  const _FilteredEmptyState({required this.filter});
+
+  @override
+  Widget build(BuildContext context) {
+    final message = filter == _ClientOrderFilter.delivered
+        ? 'Aún no tienes pedidos entregados.'
+        : 'No tienes pedidos en curso.';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Center(
+        child: Text(message, style: const TextStyle(color: Color(0xFF6A6F77))),
+      ),
+    );
+  }
+}
+
+DateTime _orderTime(Map<String, dynamic> order) {
+  return DateTime.tryParse('${order['createdAt'] ?? ''}') ?? DateTime(0);
 }
 
 String _clp(dynamic value) {
