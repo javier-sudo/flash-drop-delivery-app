@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
-import 'package:proyecto_app_delivery_gessof/src/data/demo_data.dart';
-import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
 
 class LoginController extends GetxController {
-  final emailController = TextEditingController(text: 'demo@flashdrop.cl');
-  final passwordController = TextEditingController(text: '123456');
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
 
   final isLoading = false.obs;
-  final _box = GetStorage();
   final UsersProvider usersProvider = UsersProvider();
   bool _handledArguments = false;
 
@@ -65,20 +62,6 @@ class LoginController extends GetxController {
     try {
       isLoading.value = true;
 
-      if (Environment.useDemoMode) {
-        await Future.delayed(const Duration(milliseconds: 550));
-        final demoUser = DemoData.user(email: email);
-        await _box.write('user', demoUser);
-        await _box.write('token', demoUser['session_token']);
-        Get.snackbar(
-          'Modo prototipo',
-          'Sesion iniciada con datos demo',
-          snackPosition: SnackPosition.BOTTOM,
-        );
-        goToRolesPage();
-        return;
-      }
-
       final ResponseApi resp = await usersProvider.login(
         login: email,
         password: password,
@@ -87,9 +70,7 @@ class LoginController extends GetxController {
         final map = (resp.data is Map)
             ? Map<String, dynamic>.from(resp.data)
             : <String, dynamic>{};
-        await _box.write('user', map);
-        final token = map['accessToken'] ?? map['token'] ?? map['session_token'];
-        if (token != null) await _box.write('token', token);
+        await SessionManager.instance.saveAuthenticatedSession(map);
         goToRolesPage();
       } else {
         Get.snackbar(
@@ -98,10 +79,10 @@ class LoginController extends GetxController {
           snackPosition: SnackPosition.BOTTOM,
         );
       }
-    } catch (e) {
+    } catch (_) {
       Get.snackbar(
         'Error',
-        'No se pudo conectar al backend: $e',
+        'No se pudo iniciar la sesión. Intenta nuevamente.',
         snackPosition: SnackPosition.BOTTOM,
       );
     } finally {

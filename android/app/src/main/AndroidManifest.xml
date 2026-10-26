@@ -4,9 +4,10 @@
     <!-- flutter_map (opcion B): permisos de ubicacion para my location del repartidor (futuro). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="Flash Drop"
+        android:label="Flash Drop FloCI"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

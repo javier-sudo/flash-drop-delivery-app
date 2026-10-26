@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 
 class RestaurantOrdersListPage extends StatefulWidget {
   const RestaurantOrdersListPage({super.key});
@@ -20,6 +23,8 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
   List<Map<String, dynamic>> orders = [];
   bool loading = true;
   String? errorMessage;
+  _RestaurantOrderFilter _filter = _RestaurantOrderFilter.all;
+  Timer? _refreshTimer;
 
   User get currentUser {
     final raw = GetStorage().read('user');
@@ -34,15 +39,32 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
   void initState() {
     super.initState();
     _loadOrders();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _loadOrders(silent: true),
+    );
   }
 
-  Future<void> _loadOrders() async {
-    setState(() {
-      loading = true;
-      errorMessage = null;
-    });
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadOrders({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        errorMessage = null;
+      });
+    }
     try {
-      final data = await appProvider.getOrders(userId: currentUser.id);
+      final data = await appProvider.getOrders(view: 'restaurant');
+      await LocalNotificationsService.instance.observeOrders(
+        scope: 'commerce',
+        orders: data,
+        notify: silent,
+      );
       if (!mounted) return;
       setState(() {
         orders = data;
@@ -50,16 +72,16 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        loading = false;
-        errorMessage = 'No se pudieron cargar los pedidos';
-      });
+      if (!silent) {
+        setState(() {
+          loading = false;
+          errorMessage = 'No se pudieron cargar los pedidos';
+        });
+      }
     }
   }
 
-  int get activeCount => orders
-      .where((order) => '${order['status']}'.toLowerCase() != 'entregado')
-      .length;
+  int get activeCount => orders.where((order) => !_isDelivered(order)).length;
 
   @override
   Widget build(BuildContext context) {
@@ -111,9 +133,16 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
 
     final restaurantName = orders.isNotEmpty
         ? '${orders.first['restaurantName']}'
-        : (currentUser.name ?? 'Mi restaurante');
+        : (currentUser.name ?? 'Mi comercio');
+    final visibleOrders = orders.where(_matchesFilter).toList()
+      ..sort(_compareOrdersByNewest);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        28 + MediaQuery.paddingOf(context).bottom,
+      ),
       children: [
         _SummaryHeader(
           restaurantName: restaurantName,
@@ -125,28 +154,64 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
           children: [
             Expanded(
               child: Text(
-                'Pedidos recientes',
+                _filter == _RestaurantOrderFilter.all
+                    ? 'Pedidos'
+                    : _filter.label,
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
               ),
             ),
-            Text('${orders.length} pedidos'),
+            Text('${visibleOrders.length} pedidos'),
           ],
         ),
         const SizedBox(height: 6),
-        const Text('Toca un pedido para revisar cliente, productos y pago.'),
-        const SizedBox(height: 14),
-        if (orders.isEmpty)
-          const _EmptyOrders()
+        Row(
+          children: [
+            const Icon(Icons.sort, size: 16, color: Color(0xFF6A6F77)),
+            const SizedBox(width: 6),
+            const Text(
+              'Más recientes primero; del más reciente al más antiguo',
+              style: TextStyle(color: Color(0xFF6A6F77)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _RestaurantOrderFilterBar(
+          selected: _filter,
+          orders: orders,
+          onChanged: (filter) => setState(() => _filter = filter),
+        ),
+        const SizedBox(height: 16),
+        if (visibleOrders.isEmpty)
+          _EmptyOrders(filter: _filter)
         else
-          ...orders.map(
+          ...visibleOrders.map(
             (order) =>
                 _OrderCard(order: order, onTap: () => _openOrderDetail(order)),
           ),
       ],
     );
   }
+
+  bool _matchesFilter(Map<String, dynamic> order) {
+    final status = '${order['status']}'.toLowerCase();
+    return switch (_filter) {
+      _RestaurantOrderFilter.all => true,
+      _RestaurantOrderFilter.newOrder => status.contains('nuevo'),
+      _RestaurantOrderFilter.preparing => status.contains('preparando'),
+      _RestaurantOrderFilter.ready => status.contains('listo'),
+      _RestaurantOrderFilter.inTransit =>
+        status.contains('camino') || status.contains('retirado'),
+      _RestaurantOrderFilter.delivered => status.contains('entregado'),
+    };
+  }
+
+  bool _isDelivered(Map<String, dynamic> order) =>
+      '${order['status']}'.toLowerCase().contains('entregado');
+
+  int _compareOrdersByNewest(Map<String, dynamic> a, Map<String, dynamic> b) =>
+      _orderTime(b).compareTo(_orderTime(a));
 
   Future<void> _openOrderDetail(Map<String, dynamic> summary) async {
     await showModalBottomSheet<void>(
@@ -190,6 +255,76 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+enum _RestaurantOrderFilter {
+  all('Todos'),
+  newOrder('Nuevos'),
+  preparing('Preparando'),
+  ready('Listos'),
+  inTransit('En ruta'),
+  delivered('Entregados');
+
+  final String label;
+  const _RestaurantOrderFilter(this.label);
+}
+
+class _RestaurantOrderFilterBar extends StatelessWidget {
+  final _RestaurantOrderFilter selected;
+  final List<Map<String, dynamic>> orders;
+  final ValueChanged<_RestaurantOrderFilter> onChanged;
+
+  const _RestaurantOrderFilterBar({
+    required this.selected,
+    required this.orders,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _RestaurantOrderFilter.values.map((filter) {
+          final count = orders.where((order) {
+            final status = '${order['status']}'.toLowerCase();
+            return switch (filter) {
+              _RestaurantOrderFilter.all => true,
+              _RestaurantOrderFilter.newOrder => status.contains('nuevo'),
+              _RestaurantOrderFilter.preparing => status.contains('preparando'),
+              _RestaurantOrderFilter.ready => status.contains('listo'),
+              _RestaurantOrderFilter.inTransit =>
+                status.contains('camino') || status.contains('retirado'),
+              _RestaurantOrderFilter.delivered => status.contains('entregado'),
+            };
+          }).length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text('${filter.label} · $count'),
+              selected: selected == filter,
+              showCheckmark: false,
+              onSelected: (_) => onChanged(filter),
+              labelStyle: TextStyle(
+                color: selected == filter
+                    ? const Color(0xFF0F5132)
+                    : const Color(0xFF565C64),
+                fontWeight: selected == filter
+                    ? FontWeight.w800
+                    : FontWeight.w600,
+              ),
+              selectedColor: const Color(0xFFDFF6E8),
+              side: BorderSide(
+                color: selected == filter
+                    ? const Color(0xFF12643D)
+                    : const Color(0xFFD7D9DD),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -262,6 +397,8 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ageLabel = _orderAgeLabel(order);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -287,7 +424,27 @@ class _OrderCard extends StatelessWidget {
                   _StatusChip(text: '${order['status']}'),
                 ],
               ),
-              const SizedBox(height: 12),
+              if (ageLabel != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.schedule_outlined,
+                      size: 15,
+                      color: Color(0xFF6A6F77),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      ageLabel,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF6A6F77),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              SizedBox(height: ageLabel == null ? 12 : 10),
               Row(
                 children: [
                   const CircleAvatar(
@@ -357,6 +514,7 @@ class _OrderDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final client = Map<String, dynamic>.from(order['client'] ?? {});
     final items = List<Map<String, dynamic>>.from(order['items'] ?? []);
+    final navigationBar = MediaQuery.viewPaddingOf(context).bottom;
     final status = '${order['status']}';
     final nextStatus = status == 'Nuevo pedido'
         ? 'Preparando'
@@ -365,7 +523,7 @@ class _OrderDetail extends StatelessWidget {
         : null;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
+      padding: EdgeInsets.fromLTRB(18, 10, 18, 16 + navigationBar),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -612,26 +770,49 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _EmptyOrders extends StatelessWidget {
-  const _EmptyOrders();
+  final _RestaurantOrderFilter filter;
+
+  const _EmptyOrders({this.filter = _RestaurantOrderFilter.all});
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 60),
+    final message = filter == _RestaurantOrderFilter.all
+        ? 'Este comercio aún no tiene pedidos'
+        : 'No hay pedidos ${filter.label.toLowerCase()}.';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
       child: Column(
         children: [
-          Icon(Icons.receipt_long_outlined, size: 52, color: Color(0xFF7B8189)),
-          SizedBox(height: 12),
-          Text(
-            'Este local aun no tiene pedidos',
-            style: TextStyle(fontWeight: FontWeight.w900),
+          const Icon(
+            Icons.receipt_long_outlined,
+            size: 52,
+            color: Color(0xFF7B8189),
           ),
-          SizedBox(height: 5),
-          Text('Los nuevos pedidos apareceran aqui automaticamente.'),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(fontWeight: FontWeight.w900)),
+          if (filter == _RestaurantOrderFilter.all) ...[
+            const SizedBox(height: 5),
+            const Text('Los nuevos pedidos aparecerán aquí automáticamente.'),
+          ],
         ],
       ),
     );
   }
+}
+
+DateTime _orderTime(Map<String, dynamic> order) {
+  return DateTime.tryParse('${order['createdAt'] ?? ''}') ?? DateTime(0);
+}
+
+String? _orderAgeLabel(Map<String, dynamic> order) {
+  final createdAt = DateTime.tryParse('${order['createdAt'] ?? ''}');
+  if (createdAt == null) return null;
+
+  final elapsed = DateTime.now().difference(createdAt.toLocal());
+  if (elapsed.isNegative || elapsed.inMinutes == 0) return 'Ingresó recién';
+  if (elapsed.inDays >= 1) return 'Hace ${elapsed.inDays} d';
+  if (elapsed.inHours >= 1) return 'Hace ${elapsed.inHours} h';
+  return 'Hace ${elapsed.inMinutes} min';
 }
 
 String _clp(dynamic value) {

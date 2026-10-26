@@ -1,7 +1,7 @@
 name: proyecto_app_delivery_gessof
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.12+12
+version: 1.0.33+33
 
 environment:
   sdk: ^3.8.1
@@ -12,6 +12,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   get: ^4.7.2
   get_storage: ^2.1.1
+  flutter_secure_storage: ^9.2.4
+  flutter_local_notifications: ^17.2.4
   image_picker: ^1.2.0
   http: ^1.2.2
   http_parser: ^4.0.2
@@ -24,6 +26,7 @@ dependencies:
   geocoding: ^4.0.0
   # Rama B: geolocator para my location del repartidor (futuro).
   geolocator: ^13.0.0
+  workmanager: ^0.8.0
 
 
 flutter:

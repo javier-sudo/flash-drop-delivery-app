@@ -13,7 +13,6 @@ class User {
   String? lastName;
   String phone;
   String? photo;
-  String? sessionToken;
   List<Rol> roles;
 
   User({
@@ -24,7 +23,6 @@ class User {
     this.lastName,
     required this.phone,
     this.photo,
-    this.sessionToken,
     List<Rol>? roles,
   }) : roles = roles ?? [];
 
@@ -41,8 +39,6 @@ class User {
           json['lastname']?.toString(),
       phone: json['phone']?.toString() ?? '',
       photo: json['photo']?.toString() ?? json['image']?.toString(),
-      sessionToken:
-          json['accessToken']?.toString() ?? json['session_token']?.toString(),
       roles: _parseRoles(rawRoles),
     );
   }
@@ -54,12 +50,7 @@ class User {
         return Rol.fromJson(Map<String, dynamic>.from(role));
       }
       final name = role.toString();
-      return Rol(
-        id: null,
-        name: name,
-        image: '',
-        route: _routeForRole(name),
-      );
+      return Rol(id: null, name: name, image: '', route: _routeForRole(name));
     }).toList();
   }
 
@@ -80,7 +71,6 @@ class User {
     'lastName': lastName,
     'phone': phone,
     'photo': photo,
-    'session_token': sessionToken,
     'roles': roles.map((role) => role.toJson()).toList(),
   };
 }
