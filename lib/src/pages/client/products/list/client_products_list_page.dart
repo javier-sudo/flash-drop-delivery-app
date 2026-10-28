@@ -179,13 +179,10 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
       selectedCategory != _allFilter ||
       selectedRestaurant != _allFilter;
 
-  bool get _showRestaurantDirectory =>
-      selectedRestaurant == _allFilter &&
-      selectedCategory == _allFilter &&
-      searchController.text.trim().isEmpty;
+  bool get _showRestaurantDirectory => selectedRestaurant == _allFilter;
 
-  List<List<Map<String, dynamic>>> get _restaurantGroups {
-    final groups = _groupByRestaurant(availableProducts).values.toList()
+  List<List<Map<String, dynamic>>> get _visibleRestaurantGroups {
+    final groups = _groupByRestaurant(filteredProducts).values.toList()
       ..sort(
         (a, b) => '${a.first['restaurantName'] ?? ''}'.compareTo(
           '${b.first['restaurantName'] ?? ''}',
@@ -195,10 +192,21 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
   }
 
   void _selectRestaurant(String restaurant) {
-    setState(() => selectedRestaurant = restaurant);
+    setState(() {
+      selectedRestaurant = restaurant;
+      selectedCategory = _allFilter;
+      searchController.clear();
+    });
   }
 
-  void _clearFilters() {
+  void _clearDiscoveryFilters() {
+    setState(() {
+      searchController.clear();
+      selectedCategory = _allFilter;
+    });
+  }
+
+  void _backToRestaurantDirectory() {
     setState(() {
       searchController.clear();
       selectedCategory = _allFilter;
@@ -296,8 +304,8 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     }
 
     final filtered = filteredProducts;
-    final grouped = _groupByRestaurant(filtered);
     final showRestaurantDirectory = _showRestaurantDirectory;
+    final restaurantGroups = _visibleRestaurantGroups;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -307,12 +315,18 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
         _HeroSearch(
           controller: searchController,
           total: showRestaurantDirectory
-              ? _restaurantGroups.length
+              ? restaurantGroups.length
               : filtered.length,
           showingRestaurants: showRestaurantDirectory,
         ),
         const SizedBox(height: 16),
         if (showRestaurantDirectory) ...[
+          _CategoryFilters(
+            categories: categories,
+            selected: selectedCategory,
+            onSelected: (value) => setState(() => selectedCategory = value),
+          ),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
@@ -324,21 +338,38 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                 ),
               ),
               Text(
-                '${_restaurantGroups.length} disponibles',
+                '${restaurantGroups.length} disponibles',
                 style: const TextStyle(color: Color(0xFF6A6F77)),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Entra a un comercio para revisar su menú.',
-            style: TextStyle(color: Color(0xFF6A6F77)),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Entra a un comercio para revisar su menú.',
+                  style: TextStyle(color: Color(0xFF6A6F77)),
+                ),
+              ),
+              if (searchController.text.trim().isNotEmpty ||
+                  selectedCategory != _allFilter)
+                TextButton.icon(
+                  onPressed: _clearDiscoveryFilters,
+                  icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                  label: const Text('Limpiar'),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
-          if (_restaurantGroups.isEmpty)
-            _EmptyProducts(hasActiveFilters: false, onClear: _clearFilters)
+          if (restaurantGroups.isEmpty)
+            _EmptyProducts(
+              hasActiveFilters:
+                  searchController.text.trim().isNotEmpty ||
+                  selectedCategory != _allFilter,
+              onClear: _clearDiscoveryFilters,
+            )
           else
-            ..._restaurantGroups.map(
+            ...restaurantGroups.map(
               (restaurantProducts) => _RestaurantStoreCard(
                 products: restaurantProducts,
                 onTap: () => _selectRestaurant(
@@ -360,8 +391,8 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                 ),
               ),
               TextButton.icon(
-                onPressed: _clearFilters,
-                icon: const Icon(Icons.storefront_outlined, size: 18),
+                onPressed: _backToRestaurantDirectory,
+                icon: const Icon(Icons.arrow_back, size: 18),
                 label: const Text('Comercios'),
               ),
             ],
@@ -373,28 +404,6 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
             onSelected: (value) => setState(() => selectedCategory = value),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Filtrar por comercio',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              if (_hasActiveFilters)
-                TextButton.icon(
-                  onPressed: _clearFilters,
-                  icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
-                  label: const Text('Limpiar'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _CategoryFilters(
-            categories: restaurants,
-            selected: selectedRestaurant,
-            onSelected: (value) => setState(() => selectedRestaurant = value),
-          ),
           const SizedBox(height: 18),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -410,15 +419,15 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
           if (filtered.isEmpty)
             _EmptyProducts(
               hasActiveFilters: _hasActiveFilters,
-              onClear: _clearFilters,
+              onClear: _backToRestaurantDirectory,
             )
           else
-            ...grouped.values.map(
-              (restaurantProducts) => _RestaurantProductSection(
-                products: restaurantProducts,
-                cart: cart,
-                onAdd: _addToCart,
-                onRemove: (product) => _changeQuantity(product, -1),
+            ...filtered.map(
+              (product) => _ProductCard(
+                product: product,
+                quantity: cart[product['id']] ?? 0,
+                onAdd: () => _addToCart(product),
+                onRemove: () => _changeQuantity(product, -1),
               ),
             ),
         ],
@@ -920,96 +929,6 @@ class _ProductCard extends StatelessWidget {
               onAdd: onAdd,
               onRemove: onRemove,
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RestaurantProductSection extends StatelessWidget {
-  final List<Map<String, dynamic>> products;
-  final Map<int, int> cart;
-  final ValueChanged<Map<String, dynamic>> onAdd;
-  final ValueChanged<Map<String, dynamic>> onRemove;
-
-  const _RestaurantProductSection({
-    required this.products,
-    required this.cart,
-    required this.onAdd,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final first = products.first;
-    final name = '${first['restaurantName'] ?? 'Comercio'}';
-    final address = '${first['restaurantAddress'] ?? ''}'.trim();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5EE),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.storefront_outlined,
-                  color: Color(0xFF12643D),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      address.isEmpty
-                          ? '${products.length} productos disponibles'
-                          : address,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF6A6F77),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '${products.length}',
-                style: const TextStyle(
-                  color: Color(0xFF6A6F77),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...products.map(
-            (product) => _ProductCard(
-              product: product,
-              quantity: cart[product['id']] ?? 0,
-              onAdd: () => onAdd(product),
-              onRemove: () => onRemove(product),
-            ),
-          ),
         ],
       ),
     );
