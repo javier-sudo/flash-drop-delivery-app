@@ -357,9 +357,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       Get.snackbar('Error', 'El pedido no tiene identificador.');
       return;
     }
-    final pinRequired =
-        route['deliveryPinRequired'] == true ||
-        route['delivery_pin_required'] == true;
+    if (!mounted) return;
     final pinController = TextEditingController();
     String? pinError;
     final confirmation = await showDialog<_DeliveryConfirmation>(
@@ -374,20 +372,18 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
               Text(
                 'Confirma que entregaste el pedido en ${route['deliveryAddress'] ?? 'la dirección indicada'}.',
               ),
-              if (pinRequired) ...[
-                const SizedBox(height: 16),
-                TextField(
-                  controller: pinController,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  decoration: InputDecoration(
-                    labelText: 'Código entregado por el cliente',
-                    errorText: pinError,
-                    border: const OutlineInputBorder(),
-                  ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pinController,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: InputDecoration(
+                  labelText: 'PIN de entrega del cliente',
+                  errorText: pinError,
+                  border: const OutlineInputBorder(),
                 ),
-              ],
+              ),
             ],
           ),
           actions: [
@@ -398,16 +394,13 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
             FilledButton(
               onPressed: () {
                 final pin = pinController.text.trim();
-                if (pinRequired && !RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+                if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
                   setDialogState(
-                    () => pinError = 'Ingresa el código de 4 a 6 dígitos.',
+                    () => pinError = 'Ingresa los 6 dígitos del código.',
                   );
                   return;
                 }
-                Navigator.pop(
-                  dialogContext,
-                  _DeliveryConfirmation(pin: pinRequired ? pin : null),
-                );
+                Navigator.pop(dialogContext, _DeliveryConfirmation(pin: pin));
               },
               child: const Text('Confirmar entrega'),
             ),
@@ -417,16 +410,27 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     );
     pinController.dispose();
     if (confirmation == null) return;
-    final response = await _api.updateOrderStatus(
-      orderId,
-      'Entregado',
-      deliveryPin: confirmation.pin,
-    );
+    final response = await _api.deliverOrder(orderId, confirmation.pin!);
     if (response.success != true) {
-      Get.snackbar(
-        'No se pudo actualizar',
-        response.message ?? 'Intenta nuevamente.',
-      );
+      final title = switch (response.statusCode) {
+        409 => 'Pedido no disponible',
+        423 => 'Entrega bloqueada',
+        422 when response.codeRenewed == true => 'Código renovado',
+        422 => 'Código incorrecto',
+        _ => 'No se pudo actualizar',
+      };
+      final details = <String>[
+        if ((response.message ?? '').trim().isNotEmpty)
+          response.message!.trim(),
+        if (response.codeRenewed == true)
+          'El cliente ya puede consultar el nuevo código en su app.',
+        if (response.remainingAttempts != null &&
+            response.codeRenewed != true &&
+            response.statusCode == 422 &&
+            !(response.message ?? '').toLowerCase().contains('intento'))
+          'Intentos restantes: ${response.remainingAttempts}.',
+      ].join('\n');
+      Get.snackbar(title, details.isEmpty ? 'Intenta nuevamente.' : details);
       return;
     }
     Get.snackbar(

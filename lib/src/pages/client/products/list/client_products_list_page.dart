@@ -10,6 +10,7 @@ import 'package:proyecto_app_delivery_gessof/src/pages/client/address/address_se
 import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/list/client_orders_list_widget.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/order_delivery_code_store.dart';
 
 class ClientProductsListPage extends StatefulWidget {
   const ClientProductsListPage({super.key});
@@ -474,6 +475,7 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
     final addressController = TextEditingController(text: prefillAddress());
     final addressFieldKey = GlobalKey();
     var paymentMethod = 'Efectivo';
+    const receptionMode = 'SEGURO';
     var placingOrder = false;
     var orderConfirmed = false;
 
@@ -607,6 +609,47 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                             onChanged: (value) =>
                                 paymentMethod = value ?? 'Efectivo',
                           ),
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7E5),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: const Color(0xFFE9C96D),
+                              ),
+                            ),
+                            child: const Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.verified_user_outlined,
+                                  color: Color(0xFF815B00),
+                                ),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'PIN obligatorio para la entrega',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      SizedBox(height: 3),
+                                      Text(
+                                        'Al recibir el pedido, comparte con el repartidor el código de 6 dígitos que aparecerá en su seguimiento.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           const SizedBox(height: 18),
                           _PriceRow(label: 'Subtotal', value: cartSubtotal),
                           const SizedBox(height: 8),
@@ -652,11 +695,25 @@ class _ClientProductsListPageState extends State<ClientProductsListPage> {
                                       .toList(),
                                   address: address,
                                   paymentMethod: paymentMethod,
+                                  receptionMode: receptionMode,
                                   distanceKm: estimate.$1,
                                   estimatedMinutes: estimate.$2,
                                 );
                                 if (!mounted) return;
                                 if (response.success == true) {
+                                  final createdOrder = response.data;
+                                  if (createdOrder is Map) {
+                                    final orderId = createdOrder['id'];
+                                    final code =
+                                        createdOrder['deliveryCode'] ??
+                                        createdOrder['delivery_code'];
+                                    if (orderId != null && code != null) {
+                                      await OrderDeliveryCodeStore.save(
+                                        orderId,
+                                        code.toString(),
+                                      );
+                                    }
+                                  }
                                   await box.write('deliveryAddress', address);
                                   // Keep new address key in sync
                                   final raw = box.read('delivery_address');

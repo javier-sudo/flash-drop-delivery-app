@@ -121,6 +121,7 @@ class AppProvider {
     List<Map<String, dynamic>>? items,
     required String address,
     String paymentMethod = 'Efectivo',
+    String receptionMode = 'SEGURO',
     double? distanceKm,
     int? estimatedMinutes,
   }) async {
@@ -137,6 +138,7 @@ class AppProvider {
                 .toList(),
           'address': address,
           'payment_method': paymentMethod,
+          'receptionMode': receptionMode,
           if (distanceKm != null) 'distance_km': distanceKm,
           if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
         }),
@@ -174,6 +176,17 @@ class AppProvider {
     return _response(res);
   }
 
+  Future<ResponseApi> deliverOrder(Object orderId, String code) async {
+    final res = await _send(
+      http.post(
+        Uri.parse('$_base/api/orders/$orderId/deliver'),
+        headers: await _headers,
+        body: jsonEncode({'code': code}),
+      ),
+    );
+    return _response(res);
+  }
+
   Future<ResponseApi> claimDeliveryOrders({required List<int> orderIds}) async {
     final res = await _send(
       http.post(
@@ -199,11 +212,16 @@ class AppProvider {
             body['success'] != false,
         message: body['message']?.toString(),
         data: body['data'],
+        statusCode: response.statusCode,
+        error: body['error']?.toString(),
+        remainingAttempts: (body['remainingAttempts'] as num?)?.toInt(),
+        codeRenewed: body['codeRenewed'] as bool?,
       );
     } catch (_) {
       return ResponseApi(
         success: false,
         message: 'Respuesta invalida del servidor',
+        statusCode: response.statusCode,
       );
     }
   }

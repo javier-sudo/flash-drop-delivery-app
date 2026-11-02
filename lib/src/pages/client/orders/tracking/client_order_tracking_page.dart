@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/delivery_code_panel.dart';
 
 class ClientOrderTrackingPage extends StatefulWidget {
   const ClientOrderTrackingPage({super.key});
@@ -82,16 +83,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   bool get _isDelivered =>
       '${_order['status']}'.toLowerCase().contains('entregado');
-
-  String? get _deliveryPin {
-    final value =
-        _order['deliveryPin'] ??
-        _order['delivery_pin'] ??
-        _order['verificationCode'] ??
-        _order['verification_code'];
-    final pin = value?.toString().trim();
-    return pin != null && RegExp(r'^\d{4,6}$').hasMatch(pin) ? pin : null;
-  }
 
   int get _currentStep {
     final s = '${_order['status']}'.toLowerCase();
@@ -191,6 +182,10 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
       children: [
         _StatusHeader(statusText: '${_order['status']}', step: _currentStep),
         const SizedBox(height: 20),
+        if (!_isDelivered) ...[
+          DeliveryCodePanel(order: _order),
+          const SizedBox(height: 20),
+        ],
         _StatusTimeline(currentStep: _currentStep),
         const SizedBox(height: 22),
         _TrackingMap(
@@ -199,10 +194,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
           deliveryCoordinates: _registeredDeliveryCoordinates,
         ),
         const SizedBox(height: 18),
-        if (_currentStep == 3 && _deliveryPin != null) ...[
-          _DeliveryPinCard(pin: _deliveryPin!),
-          const SizedBox(height: 12),
-        ],
         _InfoCard(
           icon: Icons.location_on_outlined,
           title: 'Dirección de entrega',
@@ -238,58 +229,6 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         const SizedBox(height: 4),
         _TotalRow(label: 'Total', value: _order['total'], strong: true),
       ],
-    );
-  }
-}
-
-class _DeliveryPinCard extends StatelessWidget {
-  final String pin;
-
-  const _DeliveryPinCard({required this.pin});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEEF3FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFB7CEFA)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.verified_user_outlined, color: Color(0xFF1769C2)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Código de entrega',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Compártelo solo cuando recibas el pedido.',
-                  style: TextStyle(
-                    color: Colors.black.withValues(alpha: 0.68),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            pin,
-            style: const TextStyle(
-              letterSpacing: 2,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF1769C2),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

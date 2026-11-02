@@ -1,7 +1,7 @@
 name: proyecto_app_delivery_gessof
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.34+34
+version: 1.0.42+42
 
 environment:
   sdk: ^3.8.1
@@ -28,6 +28,9 @@ dependencies:
   geolocator: ^13.0.0
   workmanager: ^0.8.0
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true
