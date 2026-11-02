@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
-import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/delivery_code_panel.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 class ClientOrderTrackingPage extends StatefulWidget {
   const ClientOrderTrackingPage({super.key});
@@ -19,13 +21,21 @@ class ClientOrderTrackingPage extends StatefulWidget {
 }
 
 class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
-  final _appProvider = AppProvider();
+  // Permite inyectar un provider (tests); por defecto usa el real.
+  final _appProvider = Get.isRegistered<AppProvider>()
+      ? Get.find<AppProvider>()
+      : AppProvider();
 
   late final Object _orderId;
   Map<String, dynamic> _order = {};
   bool _loading = true;
   String? _error;
   Timer? _timer;
+
+  LatLng? _pickupCoord;
+  LatLng? _deliveryCoord;
+  bool _geocoding = false;
+  bool _geocoded = false;
 
   @override
   void initState() {
@@ -60,6 +70,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         _loading = false;
       });
       _scheduleRefreshIfActive();
+      if (!_geocoding) await _geocodeAddresses();
     } catch (_) {
       if (!mounted) return;
       if (!silent) {
@@ -81,17 +92,17 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     }
   }
 
-  bool get _isDelivered =>
-      '${_order['status']}'.toLowerCase().contains('entregado');
+  OrderStage get _stage => OrderStage.of(_order['status']);
 
-  int get _currentStep {
-    final s = '${_order['status']}'.toLowerCase();
-    if (s.contains('entregado')) return 4;
-    if (s.contains('camino')) return 3;
-    if (s.contains('listo')) return 2;
-    if (s.contains('preparando')) return 1;
-    return 0;
-  }
+  bool get _isDelivered => _stage.isDelivered;
+
+  /// Pedidos con entrega segura (o que ya traen PIN) muestran el código.
+  bool get _showsDeliveryCode =>
+      !_isDelivered &&
+      ('${_order['receptionMode'] ?? _order['reception_mode'] ?? ''}'
+                  .toUpperCase() ==
+              'SEGURO' ||
+          DeliveryCodePanel.codeOf(_order) != null);
 
   String get _pickupAddress {
     if (_order['restaurantAddress'] is String &&
@@ -112,23 +123,24 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     return '';
   }
 
-  LatLng? get _registeredDeliveryCoordinates {
-    final saved = GetStorage().read('delivery_address');
-    if (saved is! Map) return null;
+  Future<void> _geocodeAddresses() async {
+    _geocoding = true;
+    final delivery = '${_order['address'] ?? ''}';
+    final pickup = _pickupAddress;
 
-    final savedAddress = saved['address']?.toString().trim().toLowerCase();
-    final orderAddress = _order['address']?.toString().trim().toLowerCase();
-    if (savedAddress == null ||
-        savedAddress.isEmpty ||
-        savedAddress != orderAddress) {
-      return null;
+    if (delivery.isNotEmpty) {
+      _deliveryCoord = await _geocode(delivery);
     }
-
-    final lat = (saved['lat'] as num?)?.toDouble();
-    final lng = (saved['lng'] as num?)?.toDouble();
-    if (lat == null || lng == null) return null;
-    return LatLng(lat, lng);
+    if (pickup.isNotEmpty && pickup != delivery) {
+      _pickupCoord = await _geocode(pickup);
+    }
+    _geocoding = false;
+    _geocoded = true;
+    if (mounted) setState(() {});
   }
+
+  Future<LatLng?> _geocode(String address) =>
+      RegisteredAddressResolver.resolve(address);
 
   @override
   Widget build(BuildContext context) {
@@ -173,25 +185,20 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     final items = List<Map<String, dynamic>>.from(_order['items'] ?? []);
 
     return ListView(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        12,
-        16,
-        32 + MediaQuery.viewPaddingOf(context).bottom,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
-        _StatusHeader(statusText: '${_order['status']}', step: _currentStep),
-        const SizedBox(height: 20),
-        if (!_isDelivered) ...[
+        _StatusHeader(statusText: '${_order['status']}', stage: _stage),
+        if (_showsDeliveryCode) ...[
+          const SizedBox(height: 12),
           DeliveryCodePanel(order: _order),
-          const SizedBox(height: 20),
         ],
-        _StatusTimeline(currentStep: _currentStep),
+        const SizedBox(height: 20),
+        _StatusTimeline(currentStep: _stage.step),
         const SizedBox(height: 22),
         _TrackingMap(
-          pickupAddress: _pickupAddress,
-          deliveryAddress: '${_order['address'] ?? ''}',
-          deliveryCoordinates: _registeredDeliveryCoordinates,
+          pickupCoord: _pickupCoord,
+          deliveryCoord: _deliveryCoord,
+          resolving: !_geocoded,
         ),
         const SizedBox(height: 18),
         _InfoCard(
@@ -237,13 +244,19 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
 class _StatusHeader extends StatelessWidget {
   final String statusText;
-  final int step;
+  final OrderStage stage;
 
-  const _StatusHeader({required this.statusText, required this.step});
+  const _StatusHeader({required this.statusText, required this.stage});
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color, bg, description) = _meta(step);
+    final color = stage.color;
+    final bg = switch (stage.step) {
+      0 => const Color(0xFFEEF3FF),
+      3 => const Color(0xFFE8F0FE),
+      4 => const Color(0xFFE6F4ED),
+      _ => const Color(0xFFFFF8E1),
+    };
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -259,7 +272,7 @@ class _StatusHeader extends StatelessWidget {
               color: color.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 32),
+            child: OrderStepImage(step: stage.step, size: 40),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -275,48 +288,13 @@ class _StatusHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(description),
+                Text(stage.message),
               ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  (IconData, Color, Color, String) _meta(int step) {
-    return switch (step) {
-      0 => (
-        Icons.receipt_long_outlined,
-        const Color(0xFF1769C2),
-        const Color(0xFFEEF3FF),
-        'El comercio recibió tu pedido.',
-      ),
-      1 => (
-        Icons.soup_kitchen_outlined,
-        const Color(0xFF8A5700),
-        const Color(0xFFFFF8E1),
-        'El local está preparando tu pedido.',
-      ),
-      2 => (
-        Icons.inventory_2_outlined,
-        const Color(0xFF8A5700),
-        const Color(0xFFFFF8E1),
-        'Tu pedido está listo; un repartidor lo retirará pronto.',
-      ),
-      3 => (
-        Icons.delivery_dining,
-        const Color(0xFF1565C0),
-        const Color(0xFFE8F0FE),
-        'Tu pedido está en camino.',
-      ),
-      _ => (
-        Icons.check_circle_outline,
-        const Color(0xFF12643D),
-        const Color(0xFFE6F4ED),
-        '¡Tu pedido fue entregado! Buen provecho.',
-      ),
-    };
   }
 }
 
@@ -327,13 +305,7 @@ class _StatusTimeline extends StatelessWidget {
 
   const _StatusTimeline({required this.currentStep});
 
-  static const _steps = [
-    (Icons.receipt_long_outlined, 'Recibido'),
-    (Icons.soup_kitchen_outlined, 'Preparando'),
-    (Icons.inventory_2_outlined, 'Listo para retiro'),
-    (Icons.delivery_dining, 'En camino'),
-    (Icons.check_circle_outline, 'Entregado'),
-  ];
+  static const _labels = OrderStage.labels;
 
   @override
   Widget build(BuildContext context) {
@@ -351,7 +323,7 @@ class _StatusTimeline extends StatelessWidget {
         ],
       ),
       child: Row(
-        children: List.generate(_steps.length * 2 - 1, (i) {
+        children: List.generate(_labels.length * 2 - 1, (i) {
           if (i.isOdd) {
             final filled = (i ~/ 2) < currentStep;
             return Expanded(
@@ -370,8 +342,12 @@ class _StatusTimeline extends StatelessWidget {
           final step = i ~/ 2;
           final done = step <= currentStep;
           final active = step == currentStep;
-          final (icon, label) = _steps[step];
-          return _StepDot(icon: icon, label: label, done: done, active: active);
+          return _StepDot(
+            step: step,
+            label: _labels[step],
+            done: done,
+            active: active,
+          );
         }),
       ),
     );
@@ -379,13 +355,13 @@ class _StatusTimeline extends StatelessWidget {
 }
 
 class _StepDot extends StatelessWidget {
-  final IconData icon;
+  final int step;
   final String label;
   final bool done;
   final bool active;
 
   const _StepDot({
-    required this.icon,
+    required this.step,
     required this.label,
     required this.done,
     required this.active,
@@ -393,58 +369,39 @@ class _StepDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color bg;
-    final Color iconColor;
-    if (active) {
-      bg = const Color(0xFFFFB300);
-      iconColor = Colors.white;
-    } else if (done) {
-      bg = const Color(0xFF12643D);
-      iconColor = Colors.white;
-    } else {
-      bg = const Color(0xFFE8EAED);
-      iconColor = const Color(0xFF9EA5AD);
-    }
-
-    return SizedBox(
-      width: 54,
-      child: Column(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: active ? 48 : 38,
-            height: active ? 48 : 38,
-            decoration: BoxDecoration(
-              color: bg,
-              shape: BoxShape.circle,
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFFFFB300).withValues(alpha: 0.45),
-                        blurRadius: 12,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Icon(icon, color: iconColor, size: active ? 24 : 18),
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 24,
-            child: Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: active ? FontWeight.w900 : FontWeight.w400,
-                color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+    return Column(
+      children: [
+        // El paso actual se destaca con un halo ámbar; los pendientes van en gris.
+        // Alto fijo para que todas las etiquetas queden a la misma altura.
+        SizedBox(
+          height: 50,
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              width: active ? 50 : 38,
+              height: active ? 50 : 38,
+              padding: EdgeInsets.all(active ? 6 : 3),
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFFFFF3CD) : Colors.transparent,
+                shape: BoxShape.circle,
+                border: active
+                    ? Border.all(color: const Color(0xFFFFB300), width: 2)
+                    : null,
               ),
+              child: OrderStepImage(step: step, size: 38, pending: !done),
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: active ? FontWeight.w900 : FontWeight.w400,
+            color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -452,14 +409,14 @@ class _StepDot extends StatelessWidget {
 // ─── Tracking map ─────────────────────────────────────────────────────────────
 
 class _TrackingMap extends StatelessWidget {
-  final String pickupAddress;
-  final String deliveryAddress;
-  final LatLng? deliveryCoordinates;
+  final LatLng? pickupCoord;
+  final LatLng? deliveryCoord;
+  final bool resolving;
 
   const _TrackingMap({
-    required this.pickupAddress,
-    required this.deliveryAddress,
-    this.deliveryCoordinates,
+    required this.pickupCoord,
+    required this.deliveryCoord,
+    required this.resolving,
   });
 
   @override
@@ -477,7 +434,7 @@ class _TrackingMap extends StatelessWidget {
             ),
             _LegendItem(color: const Color(0xFF16824B), label: 'Comercio'),
             const SizedBox(width: 12),
-            _LegendItem(color: const Color(0xFF1769C2), label: 'Tu dirección'),
+            _LegendItem(color: const Color(0xFFFFB300), label: 'Tu dirección'),
           ],
         ),
         const SizedBox(height: 10),
@@ -486,9 +443,9 @@ class _TrackingMap extends StatelessWidget {
           child: SizedBox(
             height: 220,
             child: MapTrackingWidget(
-              pickupAddress: pickupAddress,
-              deliveryAddress: deliveryAddress,
-              deliveryCoordinates: deliveryCoordinates,
+              pickupLocation: pickupCoord,
+              deliveryLocation: deliveryCoord,
+              resolving: resolving,
             ),
           ),
         ),

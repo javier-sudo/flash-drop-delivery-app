@@ -4,6 +4,7 @@
     <!-- flutter_map (opcion B): permisos de ubicacion para my location del repartidor (futuro). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Android 13+: avisos locales de cambios de estado de pedidos. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application

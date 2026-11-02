@@ -27,6 +27,7 @@ dependencies:
   # Rama B: geolocator para my location del repartidor (futuro).
   geolocator: ^13.0.0
   workmanager: ^0.8.0
+  flutter_svg: ^2.2.3
 
 dev_dependencies:
   flutter_test:
@@ -36,3 +37,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/img/
+    - assets/img/steps/
+    - assets/illustrations/states/
+    - assets/illustrations/markers/
+    - assets/illustrations/address/

@@ -3,8 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
 
+/// Sesión del usuario: el perfil queda en GetStorage y los tokens en
+/// almacenamiento seguro. Renueva el access token antes de que venza.
 class SessionManager {
   SessionManager._();
 
@@ -13,12 +16,25 @@ class SessionManager {
   static const _accessTokenKey = 'flashdrop_access_token';
   static const _refreshTokenKey = 'flashdrop_refresh_token';
 
+  /// Claves locales de la sesión: se borran al salir para que el siguiente
+  /// usuario del equipo no herede rol, dirección ni ruta activa.
+  static const sessionKeys = [
+    'user',
+    'token',
+    'selected_role',
+    'deliveryAddress',
+    'delivery_address',
+    'driver_active_orders',
+  ];
+
   final _storage = GetStorage();
   final _secureStorage = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
-  final _usersProvider = UsersProvider();
+  UsersProvider? _usersProvider;
   Future<String?>? _refreshing;
+
+  UsersProvider get _users => _usersProvider ??= UsersProvider();
 
   Future<bool> restoreSession() async {
     final rawUser = _storage.read('user');
@@ -59,9 +75,7 @@ class SessionManager {
 
   Future<void> clearSession() async {
     await Future.wait([
-      _storage.remove('user'),
-      _storage.remove('token'),
-      _storage.remove('selected_role'),
+      for (final key in sessionKeys) _storage.remove(key),
       _secureStorage.delete(key: _accessTokenKey),
       _secureStorage.delete(key: _refreshTokenKey),
     ]);
@@ -70,6 +84,8 @@ class SessionManager {
   Future<String?> accessToken({bool forceRefresh = false}) async {
     final token = await _secureStorage.read(key: _accessTokenKey);
     if (token == null || token.isEmpty) return null;
+    // El backend demo no emite JWT ni tiene /auth/refresh.
+    if (Environment.useDemoMode) return token;
     if (!forceRefresh && !_expiresSoon(token)) return token;
 
     final refreshed = await _refresh();
@@ -131,7 +147,7 @@ class SessionManager {
     final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
     if (refreshToken == null || refreshToken.isEmpty) return null;
 
-    final result = await _usersProvider.refreshSession(refreshToken);
+    final result = await _users.refreshSession(refreshToken);
     if (result.isSuccess) {
       await _secureStorage.write(
         key: _accessTokenKey,

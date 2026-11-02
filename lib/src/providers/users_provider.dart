@@ -133,6 +133,7 @@ class UsersProvider {
         );
       }
       if (mapLoginResult) {
+        // El Gateway puede envolver la respuesta en `data`.
         final payload = body['data'] is Map
             ? Map<String, dynamic>.from(body['data'] as Map)
             : body;
@@ -186,5 +187,7 @@ class SessionRefreshResult {
     : this._(accessToken: null, refreshToken: null, statusCode: statusCode);
 
   bool get isSuccess => accessToken != null && refreshToken != null;
+
+  /// 401/403: el refresh token ya no sirve y hay que volver a iniciar sesión.
   bool get isInvalid => statusCode == 401 || statusCode == 403;
 }

@@ -5,6 +5,10 @@ import 'package:get/get.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
+
+enum _Filter { all, active, delivered }
 
 class ClientOrdersListWidget extends StatefulWidget {
   const ClientOrdersListWidget({super.key});
@@ -14,19 +18,22 @@ class ClientOrdersListWidget extends StatefulWidget {
 }
 
 class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
-  final _appProvider = AppProvider();
+  // Permite inyectar un provider (tests); por defecto usa el real.
+  final _appProvider = Get.isRegistered<AppProvider>()
+      ? Get.find<AppProvider>()
+      : AppProvider();
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
   String? _error;
-  _ClientOrderFilter _filter = _ClientOrderFilter.active;
   Timer? _refreshTimer;
+  _Filter _filter = _Filter.all;
 
   @override
   void initState() {
     super.initState();
     _loadOrders();
     _refreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) => _loadOrders(silent: true),
     );
   }
@@ -46,11 +53,13 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     }
     try {
       final data = await _appProvider.getOrders(view: 'client');
+      // Solo avisa en las recargas automáticas, no al abrir la pantalla.
       await LocalNotificationsService.instance.observeOrders(
         scope: 'client',
         orders: data,
         notify: silent,
       );
+      data.sort((a, b) => orderTime(b).compareTo(orderTime(a)));
       if (!mounted) return;
       setState(() {
         _orders = data;
@@ -72,18 +81,16 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     if (_error != null) {
+      // ListView para que el gesto de "tirar para actualizar" siga disponible.
       return ListView(
-        padding: const EdgeInsets.all(24),
         children: [
-          const SizedBox(height: 80),
-          const Icon(Icons.cloud_off, size: 52, color: Color(0xFF9EA5AD)),
-          const SizedBox(height: 12),
-          Center(child: Text(_error!)),
-          const SizedBox(height: 14),
-          FilledButton.icon(
-            onPressed: _loadOrders,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Reintentar'),
+          const SizedBox(height: 40),
+          IllustratedMessage(
+            illustration: AppIllustration.noConnection,
+            title: _error!,
+            message: 'Revisa tu conexión e intenta de nuevo.',
+            actionLabel: 'Reintentar',
+            onAction: _loadOrders,
           ),
         ],
       );
@@ -91,125 +98,132 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
 
     if (_orders.isEmpty) return const _EmptyState();
 
-    final active =
-        _orders
-            .where((o) => !_OrderStatus.of('${o['status']}').isDelivered)
-            .toList()
-          ..sort(_compareOrders);
-    final history =
-        _orders
-            .where((o) => _OrderStatus.of('${o['status']}').isDelivered)
-            .toList()
-          ..sort((a, b) => _orderTime(b).compareTo(_orderTime(a)));
-    final visible = switch (_filter) {
-      _ClientOrderFilter.all => [
-        ..._orders,
-      ]..sort((a, b) => _orderTime(b).compareTo(_orderTime(a))),
-      _ClientOrderFilter.active => active,
-      _ClientOrderFilter.delivered => history,
-    };
+    final active = _orders
+        .where((o) => !OrderStage.of(o['status']).isDelivered)
+        .toList();
+    final history = _orders
+        .where((o) => OrderStage.of(o['status']).isDelivered)
+        .toList();
+    final showActive = _filter != _Filter.delivered;
+    final showHistory = _filter != _Filter.active;
+    final shown =
+        (showActive ? active.length : 0) + (showHistory ? history.length : 0);
 
     return RefreshIndicator(
       onRefresh: _loadOrders,
       child: ListView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          12,
-          16,
-          32 + MediaQuery.paddingOf(context).bottom,
-        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          _SectionLabel(
-            title: _filter == _ClientOrderFilter.delivered
-                ? 'Historial'
-                : 'Tus pedidos',
-            count: visible.length,
-            dot: _filter == _ClientOrderFilter.delivered
-                ? const Color(0xFF9EA5AD)
-                : const Color(0xFF1769C2),
-          ),
-          const SizedBox(height: 12),
-          _ClientOrderFilterBar(
-            selected: _filter,
+          _FilterBar(
+            value: _filter,
             activeCount: active.length,
             deliveredCount: history.length,
-            onChanged: (filter) => setState(() => _filter = filter),
+            onChanged: (f) => setState(() => _filter = f),
           ),
-          const SizedBox(height: 16),
-          if (visible.isEmpty)
-            _FilteredEmptyState(filter: _filter)
-          else
-            ...visible.map(
+          const SizedBox(height: 14),
+          if (shown == 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Text(
+                _filter == _Filter.delivered
+                    ? 'Aún no tienes pedidos entregados.'
+                    : 'No tienes pedidos en curso.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF7B8189)),
+              ),
+            ),
+          if (showActive && active.isNotEmpty) ...[
+            _SectionLabel(
+              title: 'En curso',
+              count: active.length,
+              dot: const Color(0xFF1769C2),
+            ),
+            const SizedBox(height: 10),
+            ...active.map(
               (o) => _OrderCard(
                 order: o,
                 onTap: () =>
                     Get.toNamed('/client/orders/tracking', arguments: o['id']),
               ),
             ),
+            const SizedBox(height: 22),
+          ],
+          if (showHistory && history.isNotEmpty) ...[
+            _SectionLabel(
+              title: 'Historial',
+              count: history.length,
+              dot: const Color(0xFF9EA5AD),
+            ),
+            const SizedBox(height: 10),
+            ...history.map(
+              (o) => _OrderCard(
+                order: o,
+                onTap: () =>
+                    Get.toNamed('/client/orders/tracking', arguments: o['id']),
+              ),
+            ),
+          ],
         ],
       ),
-    );
-  }
-
-  int _compareOrders(Map<String, dynamic> a, Map<String, dynamic> b) {
-    return _orderTime(b).compareTo(_orderTime(a));
-  }
-}
-
-enum _ClientOrderFilter { all, active, delivered }
-
-// ─── Status helper ────────────────────────────────────────────────────────────
-
-class _OrderStatus {
-  final int step;
-  final bool isDelivered;
-  final Color color;
-
-  const _OrderStatus({
-    required this.step,
-    required this.isDelivered,
-    required this.color,
-  });
-
-  factory _OrderStatus.of(String status) {
-    final s = status.toLowerCase();
-    if (s.contains('entregado')) {
-      return const _OrderStatus(
-        step: 4,
-        isDelivered: true,
-        color: Color(0xFF12643D),
-      );
-    }
-    if (s.contains('camino') || s.contains('retirado')) {
-      return const _OrderStatus(
-        step: 3,
-        isDelivered: false,
-        color: Color(0xFF1565C0),
-      );
-    }
-    if (s.contains('listo')) {
-      return const _OrderStatus(
-        step: 2,
-        isDelivered: false,
-        color: Color(0xFF8A5700),
-      );
-    }
-    if (s.contains('preparando')) {
-      return const _OrderStatus(
-        step: 1,
-        isDelivered: false,
-        color: Color(0xFF8A5700),
-      );
-    }
-    return const _OrderStatus(
-      step: 0,
-      isDelivered: false,
-      color: Color(0xFF1769C2),
     );
   }
 }
 
 // ─── Widgets ──────────────────────────────────────────────────────────────────
+
+class _FilterBar extends StatelessWidget {
+  final _Filter value;
+  final int activeCount;
+  final int deliveredCount;
+  final ValueChanged<_Filter> onChanged;
+
+  const _FilterBar({
+    required this.value,
+    required this.activeCount,
+    required this.deliveredCount,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final options = [
+      (_Filter.all, 'Todos'),
+      (_Filter.active, 'En curso · $activeCount'),
+      (_Filter.delivered, 'Entregados · $deliveredCount'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (filter, label) in options)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(label),
+                selected: value == filter,
+                onSelected: (_) => onChanged(filter),
+                showCheckmark: false,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: value == filter
+                      ? const Color(0xFF1E2025)
+                      : const Color(0xFF6A6F77),
+                ),
+                selectedColor: const Color(0xFFFFE08A),
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: value == filter
+                      ? const Color(0xFFFFB300)
+                      : const Color(0xFFE4E7EC),
+                ),
+                shape: const StadiumBorder(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SectionLabel extends StatelessWidget {
   final String title;
@@ -244,78 +258,6 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _ClientOrderFilterBar extends StatelessWidget {
-  final _ClientOrderFilter selected;
-  final int activeCount;
-  final int deliveredCount;
-  final ValueChanged<_ClientOrderFilter> onChanged;
-
-  const _ClientOrderFilterBar({
-    required this.selected,
-    required this.activeCount,
-    required this.deliveredCount,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          _ClientFilterChip(
-            label: 'Todos',
-            selected: selected == _ClientOrderFilter.all,
-            onTap: () => onChanged(_ClientOrderFilter.all),
-          ),
-          const SizedBox(width: 8),
-          _ClientFilterChip(
-            label: 'En curso · $activeCount',
-            selected: selected == _ClientOrderFilter.active,
-            onTap: () => onChanged(_ClientOrderFilter.active),
-          ),
-          const SizedBox(width: 8),
-          _ClientFilterChip(
-            label: 'Entregados · $deliveredCount',
-            selected: selected == _ClientOrderFilter.delivered,
-            onTap: () => onChanged(_ClientOrderFilter.delivered),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ClientFilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ClientFilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      showCheckmark: false,
-      onSelected: (_) => onTap(),
-      labelStyle: TextStyle(
-        color: selected ? const Color(0xFF0F5132) : const Color(0xFF565C64),
-        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-      ),
-      selectedColor: const Color(0xFFDFF6E8),
-      side: BorderSide(
-        color: selected ? const Color(0xFF12643D) : const Color(0xFFD7D9DD),
-      ),
-    );
-  }
-}
-
 class _OrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final VoidCallback onTap;
@@ -324,7 +266,7 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = _OrderStatus.of('${order['status']}');
+    final meta = OrderStage.of(order['status']);
     final restaurant = '${order['restaurantName'] ?? 'Comercio'}';
 
     return Container(
@@ -444,42 +386,30 @@ class _MiniTimeline extends StatelessWidget {
 
   const _MiniTimeline({required this.step});
 
-  static const _labels = [
-    'Recibido',
-    'Preparando',
-    'Listo',
-    'En camino',
-    'Entregado',
-  ];
-  static const _icons = [
-    Icons.receipt_long_outlined,
-    Icons.soup_kitchen_outlined,
-    Icons.inventory_2_outlined,
-    Icons.delivery_dining,
-    Icons.home_outlined,
-  ];
-
   @override
   Widget build(BuildContext context) {
+    const labels = OrderStage.labels;
     return Row(
-      children: List.generate(_labels.length, (i) {
+      children: List.generate(labels.length, (i) {
         final done = i <= step;
         final active = i == step;
         return Expanded(
           child: Column(
             children: [
-              Icon(
-                _icons[i],
-                size: 20,
-                color: done
-                    ? (active
-                          ? const Color(0xFFFFB300)
-                          : const Color(0xFF12643D))
-                    : const Color(0xFFD6D8DC),
+              // Alto fijo: el paso activo es más grande sin desalinear las etiquetas.
+              SizedBox(
+                height: 30,
+                child: Center(
+                  child: OrderStepImage(
+                    step: i,
+                    size: active ? 30 : 22,
+                    pending: !done,
+                  ),
+                ),
               ),
               const SizedBox(height: 3),
               Text(
-                _labels[i],
+                labels[i],
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 9,
@@ -502,64 +432,13 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 90,
-              height: 90,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFFF3CD),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.receipt_long_outlined,
-                size: 44,
-                color: Color(0xFFFFB300),
-              ),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Aun no tienes pedidos',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Cuando hagas tu primer pedido lo verás aquí con seguimiento en tiempo real.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF6A6F77)),
-            ),
-          ],
-        ),
-      ),
+    return const IllustratedMessage(
+      illustration: AppIllustration.emptyOrders,
+      title: 'Aún no tienes pedidos',
+      message:
+          'Cuando hagas tu primer pedido lo verás aquí con seguimiento en tiempo real.',
     );
   }
-}
-
-class _FilteredEmptyState extends StatelessWidget {
-  final _ClientOrderFilter filter;
-
-  const _FilteredEmptyState({required this.filter});
-
-  @override
-  Widget build(BuildContext context) {
-    final message = filter == _ClientOrderFilter.delivered
-        ? 'Aún no tienes pedidos entregados.'
-        : 'No tienes pedidos en curso.';
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48),
-      child: Center(
-        child: Text(message, style: const TextStyle(color: Color(0xFF6A6F77))),
-      ),
-    );
-  }
-}
-
-DateTime _orderTime(Map<String, dynamic> order) {
-  return DateTime.tryParse('${order['createdAt'] ?? ''}') ?? DateTime(0);
 }
 
 String _clp(dynamic value) {

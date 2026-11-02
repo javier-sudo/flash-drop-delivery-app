@@ -1,6 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:get_storage/get_storage.dart';
 
+/// Avisos locales de cambios de estado y pedidos nuevos.
+///
+/// Recuerda el último estado visto de cada pedido por alcance (cliente,
+/// comercio, repartidor) y solo avisa cuando cambia. Las notificaciones se
+/// muestran en Android; en web y escritorio solo se lleva el registro.
 class LocalNotificationsService {
   LocalNotificationsService._();
 
@@ -18,21 +24,28 @@ class LocalNotificationsService {
   final _storage = GetStorage();
   bool _initialized = false;
 
+  static bool get isSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   Future<void> initialize({bool requestPermission = true}) async {
-    if (_initialized) return;
-    await _plugin.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
-    );
-    if (requestPermission) {
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.requestNotificationsPermission();
+    if (_initialized || !isSupported) return;
+    try {
+      await _plugin.initialize(
+        const InitializationSettings(
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        ),
+      );
+      if (requestPermission) {
+        await _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.requestNotificationsPermission();
+      }
+      _initialized = true;
+    } catch (e) {
+      debugPrint('Notificaciones locales no disponibles: $e');
     }
-    _initialized = true;
   }
 
   Future<void> observeOrders({
@@ -71,17 +84,29 @@ class LocalNotificationsService {
     await _storage.write(key, next);
   }
 
+  /// Olvida los estados vistos (al cerrar sesión).
+  Future<void> reset() async {
+    for (final scope in ['client', 'commerce', 'delivery']) {
+      await _storage.remove('order_statuses_$scope');
+    }
+  }
+
   Future<void> _show({
     required String id,
     required String title,
     required String body,
   }) async {
-    await _plugin.show(
-      '$id:$body'.hashCode & 0x7fffffff,
-      title,
-      body,
-      const NotificationDetails(android: _channel),
-    );
+    if (!_initialized) return;
+    try {
+      await _plugin.show(
+        '$id:$body'.hashCode & 0x7fffffff,
+        title,
+        body,
+        const NotificationDetails(android: _channel),
+      );
+    } catch (e) {
+      debugPrint('No se pudo mostrar la notificación: $e');
+    }
   }
 
   String _titleFor(String scope, Map<String, dynamic> order) {

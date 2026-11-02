@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/login/login_controller.dart';
 
 const kYellowStart = Color(0xFFFFC107);
@@ -66,6 +67,10 @@ class LoginPage extends StatelessWidget {
                         'App multirol para clientes, comercios y repartidores.',
                       ),
                       const SizedBox(height: 22),
+                      if (Environment.useDemoMode) ...[
+                        _DemoBadge(),
+                        const SizedBox(height: 18),
+                      ],
                       _TextFieldBox(
                         controller: con.emailController,
                         hint: 'Correo electronico',
@@ -114,6 +119,30 @@ class LoginPage extends StatelessWidget {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DemoBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline, color: Color(0xFFFFA000), size: 20),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Modo demo: los datos son de prueba y viven en memoria.',
             ),
           ),
         ],

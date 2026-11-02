@@ -37,6 +37,9 @@ class BackgroundOrderSyncService {
   }
 
   static Future<bool> sync() async {
+    // El backend demo vive en memoria del proceso de la app: no hay nada que
+    // consultar desde segundo plano.
+    if (Environment.useDemoMode) return true;
     try {
       final rawUser = GetStorage().read('user');
       if (rawUser is! Map || rawUser.isEmpty) return true;

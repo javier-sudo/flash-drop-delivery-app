@@ -1,5 +1,6 @@
 import 'package:geocoding/geocoding.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 
 /// Resuelve direcciones que llegan desde el catálogo y los pedidos.
 ///
@@ -16,19 +17,34 @@ class RegisteredAddressResolver {
     return _results.putIfAbsent(normalized, () => _lookup(normalized));
   }
 
+  /// Solo para tests.
+  static void clearCache() => _results.clear();
+
   static Future<LatLng?> _lookup(String address) async {
     try {
       final results = await locationFromAddress(
         _chileQuery(address),
       ).timeout(const Duration(seconds: 8));
-      if (results.isEmpty) return null;
-
-      final location = results.first;
-      if (!_isInChile(location.latitude, location.longitude)) return null;
-      return LatLng(location.latitude, location.longitude);
+      if (results.isNotEmpty) {
+        final location = results.first;
+        if (_isInChile(location.latitude, location.longitude)) {
+          return LatLng(location.latitude, location.longitude);
+        }
+      }
     } catch (_) {
-      return null;
+      // Sin geocodificador (web, sin red): se resuelve abajo.
     }
+    return Environment.useDemoMode ? demoPoint(address) : null;
+  }
+
+  /// Punto estable cerca de Santiago centro. Solo en modo demo, para que los
+  /// mapas tengan algo que mostrar donde no hay geocodificador (web).
+  static LatLng demoPoint(String address) {
+    final h = address.codeUnits.fold<int>(0, (s, v) => s + v);
+    return LatLng(
+      -33.4372 + ((h % 17) - 8) * 0.0022,
+      -70.6506 + ((h % 23) - 11) * 0.0022,
+    );
   }
 
   static String _normalize(String value) =>

@@ -6,8 +6,9 @@ import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 class AddressSelectorPage extends StatefulWidget {
   const AddressSelectorPage({super.key});
@@ -77,7 +78,11 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
     setState(() => _forwardGeocoding = true);
     try {
       final newCenter = await RegisteredAddressResolver.resolve(query);
-      if (!mounted || newCenter == null) return;
+      if (!mounted) return;
+      if (newCenter == null) {
+        setState(() => _forwardGeocoding = false);
+        return;
+      }
       _mapController.move(newCenter, 15);
       setState(() {
         _center = newCenter;
@@ -423,13 +428,8 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                 itemBuilder: (_, i) {
                   final s = saved[i];
                   final label = s['label']?.toString() ?? 'Dirección';
-                  final icon = label == 'Casa'
-                      ? Icons.home_outlined
-                      : label == 'Trabajo'
-                      ? Icons.work_outline
-                      : Icons.bookmark_outline;
                   return ActionChip(
-                    avatar: Icon(icon, size: 15),
+                    avatar: AddressLabelIcon(label),
                     label: Text(label, style: const TextStyle(fontSize: 12)),
                     onPressed: () => _selectSavedAddress(s),
                   );
@@ -463,13 +463,11 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                           const SizedBox(width: 10),
                           _QuickSaveChip(
                             label: 'Casa',
-                            icon: Icons.home_outlined,
                             onTap: () => _saveWithLabel('Casa'),
                           ),
                           const SizedBox(width: 8),
                           _QuickSaveChip(
                             label: 'Trabajo',
-                            icon: Icons.work_outline,
                             onTap: () => _saveWithLabel('Trabajo'),
                           ),
                         ],
@@ -497,14 +495,9 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
 
 class _QuickSaveChip extends StatelessWidget {
   final String label;
-  final IconData icon;
   final VoidCallback onTap;
 
-  const _QuickSaveChip({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
+  const _QuickSaveChip({required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -519,7 +512,7 @@ class _QuickSaveChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: const Color(0xFF4A4A4A)),
+            AddressLabelIcon(label, size: 13, color: const Color(0xFF4A4A4A)),
             const SizedBox(width: 4),
             Text(label, style: const TextStyle(fontSize: 12)),
           ],

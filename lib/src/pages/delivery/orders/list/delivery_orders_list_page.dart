@@ -6,12 +6,15 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
-import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
+import 'package:proyecto_app_delivery_gessof/src/controllers/driver_controller.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
+import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 // ─── Constants & enums ────────────────────────────────────────────────────────
 
@@ -20,7 +23,10 @@ enum _Mode { selecting, delivering }
 const int _kMax = 3;
 const String _kActiveKey = 'driver_active_orders';
 
-// OpenStreetMap tiles do not require a provider API key for this app.
+// Los avisos inferiores quedan sobre la barra de navegación del repartidor.
+const EdgeInsets _kSnackMargin = EdgeInsets.fromLTRB(12, 0, 12, 96);
+
+// Mismo proveedor que el resto de los mapas de la app (Carto exige API key).
 const String _kTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -33,9 +39,15 @@ class DeliveryOrdersListPage extends StatefulWidget {
 }
 
 class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
-  final _con = Get.put(HomeController());
-  final _api = AppProvider();
+  // Permite inyectar un provider (tests); por defecto usa el real.
+  final _api = Get.isRegistered<AppProvider>()
+      ? Get.find<AppProvider>()
+      : AppProvider();
+  final _driver = Get.isRegistered<DriverController>()
+      ? Get.find<DriverController>()
+      : Get.put(DriverController());
   final _box = GetStorage();
+  Worker? _availabilityWorker;
   final _coords = <String, LatLng>{};
   LatLng? _driverLocation;
 
@@ -55,29 +67,23 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     super.initState();
     _loadRoutes();
     _refreshDriverLocation();
+    // Cada 15 s: pedidos disponibles, estado de la ruta y ubicación propia.
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) {
-        _loadRoutes(silent: true);
-        _refreshDriverLocation();
-      }
+      if (!mounted) return;
+      _loadRoutes(silent: true);
+      _refreshDriverLocation();
+    });
+    // Al conectarse/desconectarse se recarga la lista de pedidos.
+    _availabilityWorker = ever(_driver.available, (_) {
+      if (mounted) _loadRoutes(silent: true);
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _availabilityWorker?.dispose();
     super.dispose();
-  }
-
-  bool get _hasMultipleRoles {
-    return _currentUser.roles.length > 1;
-  }
-
-  User get _currentUser {
-    final raw = _box.read('user');
-    return User.fromJson(
-      raw == null ? <String, dynamic>{} : Map<String, dynamic>.from(raw),
-    );
   }
 
   // Orders exposes this list specifically for couriers: ready to collect and
@@ -109,7 +115,10 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     }
     try {
       final routesFuture = _api.getDeliveryRoutes();
-      final restaurants = await _api.getRestaurants();
+      // Desconectado: no se piden pedidos nuevos, solo la ruta propia.
+      final restaurants = _driver.available.value
+          ? await _api.getRestaurants()
+          : <Map<String, dynamic>>[];
       final availableByRestaurant = await Future.wait(
         restaurants.map((restaurant) {
           final restaurantId = int.tryParse('${restaurant['id'] ?? ''}');
@@ -188,14 +197,15 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     };
     for (final addr in addrs) {
       if (_coords.containsKey(addr)) continue;
-      final coordinates = await _geocode(addr);
-      if (coordinates != null) {
-        _coords[addr] = coordinates;
-      }
+      // Sin coordenadas confiables la parada no se dibuja (mejor que un punto
+      // inventado en el mapa).
+      final coordinates = await RegisteredAddressResolver.resolve(addr);
+      if (coordinates != null) _coords[addr] = coordinates;
     }
     if (mounted) setState(() {});
   }
 
+  /// Ubicación real del repartidor. Si no da permiso, la ruta sigue usable.
   Future<void> _refreshDriverLocation() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return;
@@ -218,12 +228,9 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         _driverLocation = LatLng(position.latitude, position.longitude);
       });
     } catch (_) {
-      // The route remains usable when the courier declines location access.
+      // Sin GPS o sin plugin (tests): se muestra la ruta sin la moto.
     }
   }
-
-  Future<LatLng?> _geocode(String address) =>
-      RegisteredAddressResolver.resolve(address);
 
   // ── SELECTION ACTIONS ──────────────────────────────────────────────────────
 
@@ -238,6 +245,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         'Máximo $_kMax pedidos',
         'Termina tu ruta actual antes de tomar más.',
         snackPosition: SnackPosition.BOTTOM,
+        margin: _kSnackMargin,
       );
       return;
     }
@@ -247,6 +255,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         'Local diferente',
         'Solo puedes agrupar pedidos del mismo punto de retiro.',
         snackPosition: SnackPosition.BOTTOM,
+        margin: _kSnackMargin,
       );
       return;
     }
@@ -268,8 +277,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     await _ensureCoords(_selected);
   }
 
-  // Claim assigns the courier. Orders remains the source of truth for later
-  // pickup and delivery status changes, which it synchronizes to Delivery.
+  // Claim = mark En camino (locks orders from other drivers) + switch to delivering
   Future<void> _claimSelected() async {
     if (_selected.isEmpty || _claiming) return;
     setState(() => _claiming = true);
@@ -282,6 +290,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           'No se pudo tomar la ruta',
           response.message ?? 'Actualiza la lista e intenta nuevamente.',
           snackPosition: SnackPosition.BOTTOM,
+          margin: _kSnackMargin,
         );
         await _loadRoutes(silent: true);
         return;
@@ -303,6 +312,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         'Error',
         'No se pudo tomar los pedidos. Intenta nuevamente.',
         snackPosition: SnackPosition.BOTTOM,
+        margin: _kSnackMargin,
       );
     }
   }
@@ -312,7 +322,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   Future<void> _markPickedUp(Map<String, dynamic> route) async {
     final orderId = route['orderId'] as int?;
     if (orderId == null) {
-      Get.snackbar('Error', 'El pedido no tiene identificador.');
+      _notify('Error', 'El pedido no tiene identificador.');
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -335,111 +345,70 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       ),
     );
     if (confirmed != true) return;
-    final response = await _api.updateOrderStatus(orderId, 'Retirado');
+    final response = await _call(
+      () => _api.updateOrderStatus(orderId, 'Retirado'),
+    );
+    if (response == null) return;
     if (response.success != true) {
-      Get.snackbar(
+      _notify(
         'No se pudo actualizar',
         response.message ?? 'Intenta nuevamente.',
       );
       return;
     }
-    Get.snackbar(
+    _notify(
       'Pedido retirado',
       'Ahora puedes confirmar la entrega al llegar al destino.',
-      snackPosition: SnackPosition.BOTTOM,
     );
     await _loadRoutes(silent: true);
   }
 
+  /// Entrega con el PIN de 6 dígitos que el cliente ve en su seguimiento.
   Future<void> _markDelivered(Map<String, dynamic> route) async {
     final orderId = route['orderId'] as int?;
     if (orderId == null) {
-      Get.snackbar('Error', 'El pedido no tiene identificador.');
+      _notify('Error', 'El pedido no tiene identificador.');
       return;
     }
     if (!mounted) return;
-    final pinController = TextEditingController();
-    String? pinError;
-    final confirmation = await showDialog<_DeliveryConfirmation>(
+    final pin = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Confirmar entrega'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Confirma que entregaste el pedido en ${route['deliveryAddress'] ?? 'la dirección indicada'}.',
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: pinController,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  labelText: 'PIN de entrega del cliente',
-                  errorText: pinError,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final pin = pinController.text.trim();
-                if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
-                  setDialogState(
-                    () => pinError = 'Ingresa los 6 dígitos del código.',
-                  );
-                  return;
-                }
-                Navigator.pop(dialogContext, _DeliveryConfirmation(pin: pin));
-              },
-              child: const Text('Confirmar entrega'),
-            ),
-          ],
-        ),
+      builder: (_) => _DeliveryPinDialog(
+        address: '${route['deliveryAddress'] ?? 'la dirección indicada'}',
       ),
     );
-    pinController.dispose();
-    if (confirmation == null) return;
-    final response = await _api.deliverOrder(orderId, confirmation.pin!);
+    if (pin == null) return;
+    final response = await _call(() => _api.deliverOrder(orderId, pin));
+    if (response == null) return;
     if (response.success != true) {
-      final title = switch (response.statusCode) {
-        409 => 'Pedido no disponible',
-        423 => 'Entrega bloqueada',
-        422 when response.codeRenewed == true => 'Código renovado',
-        422 => 'Código incorrecto',
-        _ => 'No se pudo actualizar',
-      };
-      final details = <String>[
-        if ((response.message ?? '').trim().isNotEmpty)
-          response.message!.trim(),
-        if (response.codeRenewed == true)
-          'El cliente ya puede consultar el nuevo código en su app.',
-        if (response.remainingAttempts != null &&
-            response.codeRenewed != true &&
-            response.statusCode == 422 &&
-            !(response.message ?? '').toLowerCase().contains('intento'))
-          'Intentos restantes: ${response.remainingAttempts}.',
-      ].join('\n');
-      Get.snackbar(title, details.isEmpty ? 'Intenta nuevamente.' : details);
+      final (title, details) = deliveryErrorMessage(response);
+      _notify(title, details);
       return;
     }
-    Get.snackbar(
+    _notify(
       '¡Entrega registrada!',
       'El pedido fue entregado y la ruta se actualizará.',
-      snackPosition: SnackPosition.BOTTOM,
     );
     await _loadRoutes(silent: true);
   }
+
+  /// Ejecuta una acción del repartidor; si no hay red avisa y devuelve null.
+  Future<ResponseApi?> _call(Future<ResponseApi> Function() action) async {
+    try {
+      return await action();
+    } catch (e) {
+      debugPrint('Acción del repartidor falló: $e');
+      _notify('Sin conexión', 'No se pudo actualizar. Intenta nuevamente.');
+      return null;
+    }
+  }
+
+  void _notify(String title, String message) => Get.snackbar(
+    title,
+    message,
+    snackPosition: SnackPosition.BOTTOM,
+    margin: _kSnackMargin,
+  );
 
   Future<void> _navigate() async {
     final routes = _mode == _Mode.delivering ? _active : _selected;
@@ -471,9 +440,15 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         backgroundColor: const Color(0xFF0D1117),
         foregroundColor: Colors.white,
         elevation: 0,
+        // Es la raíz de la pestaña Pedidos: sin flecha de volver.
+        automaticallyImplyLeading: false,
         title: Text(
           _mode == _Mode.selecting ? 'Pedidos disponibles' : 'En ruta',
-          style: const TextStyle(fontWeight: FontWeight.w900),
+          // El titleTextStyle del tema usa color tinta; aquí el fondo es oscuro.
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         actions: [
           if (_mode == _Mode.selecting)
@@ -482,17 +457,6 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
               onPressed: _loadRoutes,
               icon: const Icon(Icons.refresh),
             ),
-          if (_hasMultipleRoles)
-            IconButton(
-              tooltip: 'Cambiar rol',
-              onPressed: _con.changeRole,
-              icon: const Icon(Icons.swap_horiz),
-            ),
-          IconButton(
-            tooltip: 'Cerrar sesión',
-            onPressed: _con.signOut,
-            icon: const Icon(Icons.logout),
-          ),
         ],
       ),
       body: _loading
@@ -522,16 +486,23 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 130),
             children: [
-              _StatsBanner(
-                available: _available.length,
-                selected: _selected.length,
+              Obx(
+                () => _StatsBanner(
+                  available: _available.length,
+                  selected: _selected.length,
+                  online: _driver.available.value,
+                  onToggle: _driver.setAvailable,
+                ),
               ),
               const SizedBox(height: 14),
+              if (!_driver.available.value) ...[
+                const _OfflineCard(),
+                const SizedBox(height: 14),
+              ],
               _DeliveryMap(
                 routes: mapRoutes,
                 coords: _coords,
                 fullscreen: false,
-                driverLocation: _driverLocation,
               ),
               const SizedBox(height: 16),
               if (pickups.isNotEmpty) ...[
@@ -645,20 +616,17 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           child: _DeliveryMap(
             routes: routes,
             coords: _coords,
-            fullscreen: true,
             driverLocation: _driverLocation,
+            fullscreen: true,
           ),
         ),
         Expanded(
           flex: 4,
-          child: SafeArea(
-            top: false,
-            child: _ActiveDeliveriesPanel(
-              routes: routes,
-              onNavigate: _navigate,
-              onPickedUp: _markPickedUp,
-              onDelivered: _markDelivered,
-            ),
+          child: _ActiveDeliveriesPanel(
+            routes: routes,
+            onNavigate: _navigate,
+            onPickedUp: _markPickedUp,
+            onDelivered: _markDelivered,
           ),
         ),
       ],
@@ -666,87 +634,156 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   }
 }
 
-class _DeliveryConfirmation {
-  final String? pin;
-
-  const _DeliveryConfirmation({this.pin});
-}
-
 // ─── _StatsBanner ─────────────────────────────────────────────────────────────
 
 class _StatsBanner extends StatelessWidget {
   final int available;
   final int selected;
+  final bool online;
+  final ValueChanged<bool> onToggle;
 
-  const _StatsBanner({required this.available, required this.selected});
+  const _StatsBanner({
+    required this.available,
+    required this.selected,
+    required this.online,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         gradient: const LinearGradient(
           colors: [Color(0xFF0D1117), Color(0xFF1A2535)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFB300).withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.delivery_dining,
-              color: Color(0xFFFFB300),
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Turno activo',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.delivery_dining,
+                  color: Color(0xFFFFB300),
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      online ? 'Turno activo' : 'Desconectado',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      online
+                          ? '$available pedidos disponibles'
+                          : 'No recibes pedidos nuevos',
+                      style: const TextStyle(
+                        color: Color(0xFF8B9AAD),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFB300),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$selected elegido${selected > 1 ? 's' : ''}',
+                    style: const TextStyle(
+                      color: Color(0xFF1A1A1A),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
-                Text(
-                  '$available pedidos disponibles',
-                  style: const TextStyle(
-                    color: Color(0xFF8B9AAD),
-                    fontSize: 13,
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.only(left: 14, right: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: online
+                        ? const Color(0xFF34C759)
+                        : const Color(0xFF8B9AAD),
+                    shape: BoxShape.circle,
                   ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Disponible',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Switch(
+                  value: online,
+                  onChanged: onToggle,
+                  activeColor: const Color(0xFF1A1A1A),
+                  activeTrackColor: const Color(0xFFFFB300),
                 ),
               ],
             ),
           ),
-          if (selected > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFB300),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$selected elegido${selected > 1 ? 's' : ''}',
-                style: const TextStyle(
-                  color: Color(0xFF1A1A1A),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 13,
-                ),
-              ),
-            ),
         ],
+      ),
+    );
+  }
+}
+
+class _OfflineCard extends StatelessWidget {
+  const _OfflineCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+      ),
+      child: const IllustratedMessage(
+        illustration: AppIllustration.noConnection,
+        title: 'Estás desconectado',
+        message: 'Activa "Disponible" para ver pedidos listos para retiro.',
+        size: 130,
       ),
     );
   }
@@ -757,14 +794,14 @@ class _StatsBanner extends StatelessWidget {
 class _DeliveryMap extends StatelessWidget {
   final List<Map<String, dynamic>> routes;
   final Map<String, LatLng> coords;
-  final bool fullscreen;
   final LatLng? driverLocation;
+  final bool fullscreen;
 
   const _DeliveryMap({
     required this.routes,
     required this.coords,
+    this.driverLocation,
     required this.fullscreen,
-    required this.driverLocation,
   });
 
   @override
@@ -772,17 +809,16 @@ class _DeliveryMap extends StatelessWidget {
     final points = <LatLng>[];
     final markers = <Marker>[];
 
-    if (fullscreen && driverLocation != null) {
-      points.add(driverLocation!);
-      markers.add(_driverMarker(driverLocation!));
-    }
-
     if (routes.isNotEmpty) {
       final pickupAddr = '${routes.first['pickupAddress']}';
       final pickup = coords[pickupAddr];
       if (pickup != null) {
         points.add(pickup);
         markers.add(_pickupMarker(pickup));
+        // En demo (web, sin GPS) la moto parte en el local para la presentación.
+        if (fullscreen && driverLocation == null && Environment.useDemoMode) {
+          markers.add(_driverMarker(pickup));
+        }
       }
       for (var i = 0; i < routes.length; i++) {
         final coord = coords['${routes[i]['deliveryAddress']}'];
@@ -791,6 +827,7 @@ class _DeliveryMap extends StatelessWidget {
         markers.add(_deliveryMarker(coord, i + 1));
       }
     }
+    if (driverLocation != null) markers.add(_driverMarker(driverLocation!));
 
     final map = FlutterMap(
       key: ValueKey(
@@ -829,7 +866,7 @@ class _DeliveryMap extends StatelessWidget {
         RichAttributionWidget(
           attributions: [
             TextSourceAttribution(
-              '© OpenStreetMap contributors',
+              '© OpenStreetMap',
               onTap: () => launchUrl(
                 Uri.parse('https://www.openstreetmap.org/copyright'),
               ),
@@ -893,46 +930,22 @@ class _DeliveryMap extends StatelessWidget {
     );
   }
 
+  // Pines en forma de gota: la punta queda abajo al centro, por eso
+  // alignment topCenter (el dibujo crece hacia arriba desde el punto).
   static Marker _driverMarker(LatLng point) => Marker(
     point: point,
-    width: 58,
-    height: 58,
-    child: Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF101418),
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFFFB300), width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.34),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: const Icon(Icons.delivery_dining, color: Colors.white, size: 27),
-    ),
+    width: 52,
+    height: 56,
+    alignment: Alignment.topCenter,
+    child: const MapPin(MapPinKind.rider, size: 52),
   );
 
   static Marker _pickupMarker(LatLng point) => Marker(
     point: point,
-    width: 50,
+    width: 46,
     height: 50,
-    child: Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF16824B),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: const Icon(Icons.storefront, color: Colors.white, size: 22),
-    ),
+    alignment: Alignment.topCenter,
+    child: const MapPin(MapPinKind.store, size: 46),
   );
 
   static Marker _deliveryMarker(LatLng point, int number) => Marker(
@@ -1219,10 +1232,13 @@ class _SelectableCard extends StatelessWidget {
                             color: Color(0xFF7B8189),
                           ),
                         ),
-                        const Spacer(),
-                        if (total != null)
-                          Text(
-                            _clp(total),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            total == null ? '' : _clp(total),
+                            textAlign: TextAlign.end,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               color: dimmed
@@ -1230,6 +1246,7 @@ class _SelectableCard extends StatelessWidget {
                                   : const Color(0xFF1A1A1A),
                             ),
                           ),
+                        ),
                       ],
                     ),
                   ],
@@ -1360,35 +1377,47 @@ class _ActiveDeliveriesPanel extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0C9AF8).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.navigation,
-                        color: Color(0xFF0C9AF8),
-                        size: 15,
+                // Expanded + Align: la píldora usa todo el ancho libre y solo se
+                // corta si de verdad no cabe (un Spacer le quitaba la mitad).
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
                       ),
-                      const SizedBox(width: 5),
-                      Text(
-                        'En ruta · ${routes.length} entrega${routes.length > 1 ? 's' : ''}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0C9AF8),
-                        ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0C9AF8).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
                       ),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.navigation,
+                            color: Color(0xFF0C9AF8),
+                            size: 15,
+                          ),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              'En ruta · ${routes.length} entrega${routes.length > 1 ? 's' : ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0C9AF8),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: onNavigate,
                   icon: const Icon(Icons.map_outlined, size: 16),
@@ -1444,7 +1473,7 @@ class _ActiveOrderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final needsPickup = _routeNeedsPickup(route);
+    final needsPickup = routeNeedsPickup(route);
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       decoration: BoxDecoration(
@@ -1505,6 +1534,8 @@ class _ActiveOrderTile extends StatelessWidget {
               backgroundColor: needsPickup
                   ? const Color(0xFF9A6500)
                   : const Color(0xFF16824B),
+              // El tema pinta los FilledButton con texto tinta (pensado para amarillo).
+              foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1523,14 +1554,112 @@ class _ActiveOrderTile extends StatelessWidget {
   }
 }
 
-// ─── Small helpers ─────────────────────────────────────────────────────────────
+// ─── Entrega con PIN ──────────────────────────────────────────────────────────
 
-bool _routeNeedsPickup(Map<String, dynamic> route) {
+class _DeliveryPinDialog extends StatefulWidget {
+  final String address;
+
+  const _DeliveryPinDialog({required this.address});
+
+  @override
+  State<_DeliveryPinDialog> createState() => _DeliveryPinDialogState();
+}
+
+class _DeliveryPinDialogState extends State<_DeliveryPinDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final pin = _controller.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+      setState(() => _error = 'Ingresa los 6 dígitos del código.');
+      return;
+    }
+    Navigator.pop(context, pin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Confirmar entrega'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Confirma que entregaste el pedido en ${widget.address}.'),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: 'PIN de entrega del cliente',
+              errorText: _error,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Confirmar entrega'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Título y detalle del aviso cuando Orders rechaza la entrega.
+(String, String) deliveryErrorMessage(ResponseApi response) {
+  final title = switch (response.statusCode) {
+    409 => 'Pedido no disponible',
+    423 => 'Entrega bloqueada',
+    422 when response.codeRenewed == true => 'Código renovado',
+    422 => 'Código incorrecto',
+    _ => 'No se pudo actualizar',
+  };
+  final details = <String>[
+    if ((response.message ?? '').trim().isNotEmpty) response.message!.trim(),
+    if (response.codeRenewed == true)
+      'El cliente ya puede consultar el nuevo código en su app.',
+    if (response.remainingAttempts != null &&
+        response.codeRenewed != true &&
+        response.statusCode == 422 &&
+        !(response.message ?? '').toLowerCase().contains('intento'))
+      'Intentos restantes: ${response.remainingAttempts}.',
+  ].join('\n');
+  return (title, details.isEmpty ? 'Intenta nuevamente.' : details);
+}
+
+/// Asignado (o listo/pendiente): el repartidor aún debe retirarlo en el local.
+bool routeNeedsPickup(Map<String, dynamic> route) {
   final status = _routeValue(route, 'status').toLowerCase();
   return status.contains('asignado') ||
       status.contains('listo para retiro') ||
       status.contains('pendiente');
 }
+
+/// Más reciente primero; a igual fecha, la más cercana.
+int _compareRoutesByRecency(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final byTime = orderTime(b).compareTo(orderTime(a));
+  if (byTime != 0) return byTime;
+  return _routeNumber(a['distanceKm']).compareTo(_routeNumber(b['distanceKm']));
+}
+
+// ─── Small helpers ─────────────────────────────────────────────────────────────
 
 String _routeTitle(Map<String, dynamic> route) {
   final code = _routeValue(route, 'code');
@@ -1569,18 +1698,6 @@ String _routeValue(
 
 double _routeNumber(dynamic value) =>
     value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
-
-DateTime _routeTime(Map<String, dynamic> route) {
-  final rawTime =
-      route['updatedAt'] ?? route['createdAt'] ?? route['created_at'];
-  return DateTime.tryParse('$rawTime') ?? DateTime(0);
-}
-
-int _compareRoutesByRecency(Map<String, dynamic> a, Map<String, dynamic> b) {
-  final byTime = _routeTime(b).compareTo(_routeTime(a));
-  if (byTime != 0) return byTime;
-  return _routeNumber(a['distanceKm']).compareTo(_routeNumber(b['distanceKm']));
-}
 
 class _StopRow extends StatelessWidget {
   final Color color;
@@ -1631,7 +1748,10 @@ class _LegendDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // mainAxisSize.min: dentro de un Wrap, un Row de ancho máximo apila
+    // cada ítem en su propia línea y la leyenda tapa el mapa.
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 8,
@@ -1650,36 +1770,11 @@ class _EmptyRoutes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE8F5E9),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.task_alt,
-              size: 38,
-              color: Color(0xFF16824B),
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Sin pedidos disponibles',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Todos los pedidos han sido tomados o entregados.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF7B8189)),
-          ),
-        ],
-      ),
+    return const IllustratedMessage(
+      illustration: AppIllustration.emptyOrders,
+      title: 'Sin pedidos disponibles',
+      message: 'Todos los pedidos han sido tomados o entregados.',
+      size: 150,
     );
   }
 }
@@ -1692,24 +1787,12 @@ class _ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cloud_off, size: 48, color: Color(0xFF9EA5AD)),
-            const SizedBox(height: 16),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      ),
+    return IllustratedMessage(
+      illustration: AppIllustration.noConnection,
+      title: message,
+      message: 'Revisa tu conexión e intenta de nuevo.',
+      actionLabel: 'Reintentar',
+      onAction: onRetry,
     );
   }
 }
