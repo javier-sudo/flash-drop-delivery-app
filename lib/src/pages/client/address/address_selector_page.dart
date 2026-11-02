@@ -6,6 +6,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AddressSelectorPage extends StatefulWidget {
@@ -56,9 +57,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   List<Map<String, dynamic>> get _savedAddresses {
     final raw = _box.read('saved_addresses');
     if (raw is List) {
-      return raw
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     }
     return [];
   }
@@ -77,10 +76,8 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
     if (!mounted) return;
     setState(() => _forwardGeocoding = true);
     try {
-      final results = await locationFromAddress('$query, Chile');
-      if (!mounted || results.isEmpty) return;
-      final loc = results.first;
-      final newCenter = LatLng(loc.latitude, loc.longitude);
+      final newCenter = await RegisteredAddressResolver.resolve(query);
+      if (!mounted || newCenter == null) return;
       _mapController.move(newCenter, 15);
       setState(() {
         _center = newCenter;
@@ -96,10 +93,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   void _onMapMoved(LatLng center) {
     _center = center;
     _debounce?.cancel();
-    _debounce = Timer(
-      const Duration(milliseconds: 700),
-      _reverseGeocode,
-    );
+    _debounce = Timer(const Duration(milliseconds: 700), _reverseGeocode);
   }
 
   Future<void> _reverseGeocode() async {
@@ -312,8 +306,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: [
                                 BoxShadow(
-                                  color:
-                                      Colors.black.withValues(alpha: 0.08),
+                                  color: Colors.black.withValues(alpha: 0.08),
                                   blurRadius: 8,
                                 ),
                               ],
@@ -415,10 +408,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                   const SizedBox(width: 5),
                   Text(
                     'Guardadas',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -436,8 +426,8 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                   final icon = label == 'Casa'
                       ? Icons.home_outlined
                       : label == 'Trabajo'
-                          ? Icons.work_outline
-                          : Icons.bookmark_outline;
+                      ? Icons.work_outline
+                      : Icons.bookmark_outline;
                   return ActionChip(
                     avatar: Icon(icon, size: 15),
                     label: Text(label, style: const TextStyle(fontSize: 12)),
@@ -488,8 +478,9 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                   SizedBox(
                     height: 52,
                     child: FilledButton.icon(
-                      onPressed:
-                          _addressText.isNotEmpty ? _confirmAddress : null,
+                      onPressed: _addressText.isNotEmpty
+                          ? _confirmAddress
+                          : null,
                       icon: const Icon(Icons.check_circle_outline),
                       label: const Text('Usar esta dirección'),
                     ),
@@ -530,10 +521,7 @@ class _QuickSaveChip extends StatelessWidget {
           children: [
             Icon(icon, size: 13, color: const Color(0xFF4A4A4A)),
             const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12),
-            ),
+            Text(label, style: const TextStyle(fontSize: 12)),
           ],
         ),
       ),

@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants & enums ────────────────────────────────────────────────────────
@@ -19,8 +21,7 @@ const int _kMax = 3;
 const String _kActiveKey = 'driver_active_orders';
 
 // OpenStreetMap tiles do not require a provider API key for this app.
-const String _kTileUrl =
-    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const String _kTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   final _api = AppProvider();
   final _box = GetStorage();
   final _coords = <String, LatLng>{};
+  LatLng? _driverLocation;
 
   List<Map<String, dynamic>> _availableOrders = [];
   List<Map<String, dynamic>> _ownRoutes = [];
@@ -52,9 +54,12 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   void initState() {
     super.initState();
     _loadRoutes();
-    // Auto-refresh available orders every 30 s (only in selection mode)
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_mode == _Mode.selecting && mounted) _loadRoutes(silent: true);
+    _refreshDriverLocation();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) {
+        _loadRoutes(silent: true);
+        _refreshDriverLocation();
+      }
     });
   }
 
@@ -114,19 +119,16 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         }),
       );
       final routes = await routesFuture;
+      await LocalNotificationsService.instance.observeOrders(
+        scope: 'delivery',
+        orders: routes,
+        notify: silent,
+      );
       final availableOrders = availableByRestaurant
           .expand((orders) => orders)
           .toList();
-      routes.sort(
-        (a, b) => _routeNumber(
-          a['distanceKm'],
-        ).compareTo(_routeNumber(b['distanceKm'])),
-      );
-      availableOrders.sort(
-        (a, b) => _routeNumber(
-          a['distanceKm'],
-        ).compareTo(_routeNumber(b['distanceKm'])),
-      );
+      routes.sort(_compareRoutesByRecency);
+      availableOrders.sort(_compareRoutesByRecency);
       if (!mounted) return;
 
       final stillActive = routes
@@ -186,24 +188,42 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     };
     for (final addr in addrs) {
       if (_coords.containsKey(addr)) continue;
-      _coords[addr] = await _geocode(addr);
+      final coordinates = await _geocode(addr);
+      if (coordinates != null) {
+        _coords[addr] = coordinates;
+      }
     }
     if (mounted) setState(() {});
   }
 
-  Future<LatLng> _geocode(String address) async {
+  Future<void> _refreshDriverLocation() async {
     try {
-      final res = await locationFromAddress('$address, Chile');
-      if (res.isNotEmpty) {
-        return LatLng(res.first.latitude, res.first.longitude);
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
       }
-    } catch (_) {}
-    final h = address.codeUnits.fold<int>(0, (s, v) => s + v);
-    return LatLng(
-      -33.4372 + ((h % 17) - 8) * 0.0022,
-      -70.6506 + ((h % 23) - 11) * 0.0022,
-    );
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _driverLocation = LatLng(position.latitude, position.longitude);
+      });
+    } catch (_) {
+      // The route remains usable when the courier declines location access.
+    }
   }
+
+  Future<LatLng?> _geocode(String address) =>
+      RegisteredAddressResolver.resolve(address);
 
   // ── SELECTION ACTIONS ──────────────────────────────────────────────────────
 
@@ -248,7 +268,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     await _ensureCoords(_selected);
   }
 
-  // Claim = mark En camino (locks orders from other drivers) + switch to delivering
+  // Claim assigns the courier. Orders remains the source of truth for later
+  // pickup and delivery status changes, which it synchronizes to Delivery.
   Future<void> _claimSelected() async {
     if (_selected.isEmpty || _claiming) return;
     setState(() => _claiming = true);
@@ -288,13 +309,33 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
 
   // ── DELIVERY ACTIONS ───────────────────────────────────────────────────────
 
-  Future<void> _markDelivered(Map<String, dynamic> route) async {
-    final routeId = route['id'] as int?;
-    if (routeId == null) {
-      Get.snackbar('Error', 'La ruta no tiene identificador.');
+  Future<void> _markPickedUp(Map<String, dynamic> route) async {
+    final orderId = route['orderId'] as int?;
+    if (orderId == null) {
+      Get.snackbar('Error', 'El pedido no tiene identificador.');
       return;
     }
-    final response = await _api.updateRouteStatus(routeId, 'Entregado');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmar retiro'),
+        content: Text(
+          'Confirma que retiraste el pedido en ${route['pickupAddress'] ?? 'el comercio indicado'}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirmar retiro'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final response = await _api.updateOrderStatus(orderId, 'Retirado');
     if (response.success != true) {
       Get.snackbar(
         'No se pudo actualizar',
@@ -302,22 +343,97 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       );
       return;
     }
-    final remaining = (_claimedIds.toList()..remove(route['orderId'] as int));
-    if (remaining.isEmpty) {
-      _box.remove(_kActiveKey);
-      setState(() {
-        _claimedIds.clear();
-        _mode = _Mode.selecting;
-      });
-      Get.snackbar(
-        '¡Listo!',
-        'Todas las entregas completadas. Puedes tomar más pedidos.',
-        snackPosition: SnackPosition.BOTTOM,
-      );
-    } else {
-      await _box.write(_kActiveKey, remaining);
-      setState(() => _claimedIds.remove(route['orderId'] as int));
+    Get.snackbar(
+      'Pedido retirado',
+      'Ahora puedes confirmar la entrega al llegar al destino.',
+      snackPosition: SnackPosition.BOTTOM,
+    );
+    await _loadRoutes(silent: true);
+  }
+
+  Future<void> _markDelivered(Map<String, dynamic> route) async {
+    final orderId = route['orderId'] as int?;
+    if (orderId == null) {
+      Get.snackbar('Error', 'El pedido no tiene identificador.');
+      return;
     }
+    final pinRequired =
+        route['deliveryPinRequired'] == true ||
+        route['delivery_pin_required'] == true;
+    final pinController = TextEditingController();
+    String? pinError;
+    final confirmation = await showDialog<_DeliveryConfirmation>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Confirmar entrega'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Confirma que entregaste el pedido en ${route['deliveryAddress'] ?? 'la dirección indicada'}.',
+              ),
+              if (pinRequired) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  controller: pinController,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  decoration: InputDecoration(
+                    labelText: 'Código entregado por el cliente',
+                    errorText: pinError,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final pin = pinController.text.trim();
+                if (pinRequired && !RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+                  setDialogState(
+                    () => pinError = 'Ingresa el código de 4 a 6 dígitos.',
+                  );
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  _DeliveryConfirmation(pin: pinRequired ? pin : null),
+                );
+              },
+              child: const Text('Confirmar entrega'),
+            ),
+          ],
+        ),
+      ),
+    );
+    pinController.dispose();
+    if (confirmation == null) return;
+    final response = await _api.updateOrderStatus(
+      orderId,
+      'Entregado',
+      deliveryPin: confirmation.pin,
+    );
+    if (response.success != true) {
+      Get.snackbar(
+        'No se pudo actualizar',
+        response.message ?? 'Intenta nuevamente.',
+      );
+      return;
+    }
+    Get.snackbar(
+      '¡Entrega registrada!',
+      'El pedido fue entregado y la ruta se actualizará.',
+      snackPosition: SnackPosition.BOTTOM,
+    );
     await _loadRoutes(silent: true);
   }
 
@@ -411,6 +527,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
                 routes: mapRoutes,
                 coords: _coords,
                 fullscreen: false,
+                driverLocation: _driverLocation,
               ),
               const SizedBox(height: 16),
               if (pickups.isNotEmpty) ...[
@@ -525,19 +642,30 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
             routes: routes,
             coords: _coords,
             fullscreen: true,
+            driverLocation: _driverLocation,
           ),
         ),
         Expanded(
           flex: 4,
-          child: _ActiveDeliveriesPanel(
-            routes: routes,
-            onNavigate: _navigate,
-            onDelivered: _markDelivered,
+          child: SafeArea(
+            top: false,
+            child: _ActiveDeliveriesPanel(
+              routes: routes,
+              onNavigate: _navigate,
+              onPickedUp: _markPickedUp,
+              onDelivered: _markDelivered,
+            ),
           ),
         ),
       ],
     );
   }
+}
+
+class _DeliveryConfirmation {
+  final String? pin;
+
+  const _DeliveryConfirmation({this.pin});
 }
 
 // ─── _StatsBanner ─────────────────────────────────────────────────────────────
@@ -626,11 +754,13 @@ class _DeliveryMap extends StatelessWidget {
   final List<Map<String, dynamic>> routes;
   final Map<String, LatLng> coords;
   final bool fullscreen;
+  final LatLng? driverLocation;
 
   const _DeliveryMap({
     required this.routes,
     required this.coords,
     required this.fullscreen,
+    required this.driverLocation,
   });
 
   @override
@@ -638,13 +768,17 @@ class _DeliveryMap extends StatelessWidget {
     final points = <LatLng>[];
     final markers = <Marker>[];
 
+    if (fullscreen && driverLocation != null) {
+      points.add(driverLocation!);
+      markers.add(_driverMarker(driverLocation!));
+    }
+
     if (routes.isNotEmpty) {
       final pickupAddr = '${routes.first['pickupAddress']}';
       final pickup = coords[pickupAddr];
       if (pickup != null) {
         points.add(pickup);
         markers.add(_pickupMarker(pickup));
-        if (fullscreen) markers.add(_driverMarker(pickup));
       }
       for (var i = 0; i < routes.length; i++) {
         final coord = coords['${routes[i]['deliveryAddress']}'];
@@ -692,8 +826,9 @@ class _DeliveryMap extends StatelessWidget {
           attributions: [
             TextSourceAttribution(
               '© OpenStreetMap contributors',
-              onTap: () =>
-                  launchUrl(Uri.parse('https://www.openstreetmap.org/copyright')),
+              onTap: () => launchUrl(
+                Uri.parse('https://www.openstreetmap.org/copyright'),
+              ),
             ),
           ],
         ),
@@ -1180,11 +1315,13 @@ class _ClaimBar extends StatelessWidget {
 class _ActiveDeliveriesPanel extends StatelessWidget {
   final List<Map<String, dynamic>> routes;
   final VoidCallback onNavigate;
+  final Future<void> Function(Map<String, dynamic>) onPickedUp;
   final Future<void> Function(Map<String, dynamic>) onDelivered;
 
   const _ActiveDeliveriesPanel({
     required this.routes,
     required this.onNavigate,
+    required this.onPickedUp,
     required this.onDelivered,
   });
 
@@ -1275,6 +1412,7 @@ class _ActiveDeliveriesPanel extends StatelessWidget {
               itemBuilder: (_, i) => _ActiveOrderTile(
                 route: routes[i],
                 stopNumber: i + 1,
+                onPickedUp: () => onPickedUp(routes[i]),
                 onDelivered: () => onDelivered(routes[i]),
               ),
             ),
@@ -1290,16 +1428,19 @@ class _ActiveDeliveriesPanel extends StatelessWidget {
 class _ActiveOrderTile extends StatelessWidget {
   final Map<String, dynamic> route;
   final int stopNumber;
+  final VoidCallback onPickedUp;
   final VoidCallback onDelivered;
 
   const _ActiveOrderTile({
     required this.route,
     required this.stopNumber,
+    required this.onPickedUp,
     required this.onDelivered,
   });
 
   @override
   Widget build(BuildContext context) {
+    final needsPickup = _routeNeedsPickup(route);
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       decoration: BoxDecoration(
@@ -1355,9 +1496,11 @@ class _ActiveOrderTile extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           FilledButton(
-            onPressed: onDelivered,
+            onPressed: needsPickup ? onPickedUp : onDelivered,
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF16824B),
+              backgroundColor: needsPickup
+                  ? const Color(0xFF9A6500)
+                  : const Color(0xFF16824B),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1365,9 +1508,9 @@ class _ActiveOrderTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            child: const Text(
-              'Entregado',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            child: Text(
+              needsPickup ? 'Retirar' : 'Entregar',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -1377,6 +1520,13 @@ class _ActiveOrderTile extends StatelessWidget {
 }
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
+
+bool _routeNeedsPickup(Map<String, dynamic> route) {
+  final status = _routeValue(route, 'status').toLowerCase();
+  return status.contains('asignado') ||
+      status.contains('listo para retiro') ||
+      status.contains('pendiente');
+}
 
 String _routeTitle(Map<String, dynamic> route) {
   final code = _routeValue(route, 'code');
@@ -1415,6 +1565,18 @@ String _routeValue(
 
 double _routeNumber(dynamic value) =>
     value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+DateTime _routeTime(Map<String, dynamic> route) {
+  final rawTime =
+      route['updatedAt'] ?? route['createdAt'] ?? route['created_at'];
+  return DateTime.tryParse('$rawTime') ?? DateTime(0);
+}
+
+int _compareRoutesByRecency(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final byTime = _routeTime(b).compareTo(_routeTime(a));
+  if (byTime != 0) return byTime;
+  return _routeNumber(a['distanceKm']).compareTo(_routeNumber(b['distanceKm']));
+}
 
 class _StopRow extends StatelessWidget {
   final Color color;

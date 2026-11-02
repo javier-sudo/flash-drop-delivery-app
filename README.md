@@ -10,16 +10,6 @@ Aplicacion Flutter multirol para un prototipo de delivery tipo Uber Eats.
 - Backend conectado al API Gateway de FlashDrop. La URL se entrega al ejecutar o
   compilar mediante `API_BASE_URL`.
 
-## Credenciales demo
-
-Todas usan la contrasena `123456`.
-
-- Cliente: `cliente@demo.cl`
-- Restaurante: `restaurante@demo.cl`
-- Repartidor: `repartidor@demo.cl`
-- Multirol: `admin@demo.cl`
-- Restaurante Arauco Maipu: `araucomaipu@flashdrop.cl`
-
 ## Requisitos
 
 - Flutter SDK instalado.

@@ -2,12 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:proyecto_app_delivery_gessof/src/data/demo_data.dart';
-import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/login/login_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
 
 class RegisterController extends GetxController {
   final emailController = TextEditingController();
@@ -20,7 +18,6 @@ class RegisterController extends GetxController {
 
   final isLoading = false.obs;
   final ImagePicker picker = ImagePicker();
-  final _box = GetStorage();
   final UsersProvider usersProvider = UsersProvider();
   File? imagenFile;
 
@@ -50,17 +47,6 @@ class RegisterController extends GetxController {
     try {
       isLoading.value = true;
 
-      if (Environment.useDemoMode) {
-        await Future.delayed(const Duration(milliseconds: 600));
-        final demoUser = DemoData.user(name: name, email: email, phone: phone);
-        demoUser['lastName'] = lastname;
-        demoUser['rut'] = rut.isEmpty ? '12.345.678-9' : rut;
-        await _box.remove('user');
-        await _box.remove('token');
-        _goBackToLogin(email, 'Perfil demo creado. Ahora inicia sesion.');
-        return;
-      }
-
       final registerResp = await usersProvider.registerWithImage(
         email: email,
         rut: rut.isEmpty ? null : rut,
@@ -72,8 +58,7 @@ class RegisterController extends GetxController {
       );
 
       if (registerResp.success == true) {
-        await _box.remove('user');
-        await _box.remove('token');
+        await SessionManager.instance.clearSession();
         _goBackToLogin(
           email,
           'Cuenta creada correctamente. Ahora inicia sesion.',

@@ -72,7 +72,7 @@ class RolesPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Cliente, restaurante y repartidor usan el mismo acceso, con vistas adaptadas para cada operacion.',
+              'Cliente, comercio y repartidor usan el mismo acceso, con vistas adaptadas para cada operacion.',
             ),
             const SizedBox(height: 22),
             if (roles.isEmpty)
@@ -122,7 +122,7 @@ class RolesPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      role.name ?? '',
+                      _displayRoleName(role.name ?? ''),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
@@ -162,6 +162,10 @@ class RolesPage extends StatelessWidget {
       Color(0xFFFFB300),
       'Explora productos y arma un pedido rapido.',
     );
+  }
+
+  String _displayRoleName(String name) {
+    return name.toLowerCase().contains('restaurante') ? 'Comercio' : name;
   }
 }
 
