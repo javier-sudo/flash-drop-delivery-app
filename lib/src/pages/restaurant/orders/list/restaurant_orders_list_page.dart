@@ -207,8 +207,11 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
     };
   }
 
-  bool _isDelivered(Map<String, dynamic> order) =>
-      '${order['status']}'.toLowerCase().contains('entregado');
+  bool _isDelivered(Map<String, dynamic> order) => [
+    'entregado',
+    'cancelado',
+    'rechazado',
+  ].contains('${order['status']}'.toLowerCase());
 
   int _compareOrdersByNewest(Map<String, dynamic> a, Map<String, dynamic> b) =>
       _orderTime(b).compareTo(_orderTime(a));
@@ -232,24 +235,32 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
             return _OrderDetail(
               order: snapshot.data!,
               onStatusChanged: (status) async {
-                final response = await appProvider.updateOrderStatus(
-                  summary['id'],
-                  status,
-                );
-                if (!mounted) return;
-                if (response.success == true) {
+                try {
+                  final response = await appProvider.updateOrderStatus(
+                    summary['id'],
+                    status,
+                  );
+                  if (!mounted) return;
                   if (sheetContext.mounted) Navigator.pop(sheetContext);
                   Get.snackbar(
-                    'Pedido actualizado',
-                    'El pedido ahora esta $status.',
+                    response.success == true
+                        ? 'Pedido actualizado'
+                        : 'No se pudo actualizar',
+                    response.success == true
+                        ? 'El pedido ahora esta $status.'
+                        : response.message ??
+                              'Actualiza el pedido e intenta nuevamente.',
                     snackPosition: SnackPosition.BOTTOM,
                   );
                   await _loadOrders();
-                } else {
+                } catch (_) {
+                  if (!mounted) return;
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
                   Get.snackbar(
-                    'No se pudo actualizar',
-                    response.message ?? 'Intenta nuevamente.',
+                    'No se pudo confirmar',
+                    'Revisa el estado del pedido antes de reintentar.',
                   );
+                  await _loadOrders();
                 }
               },
             );
@@ -678,6 +689,34 @@ class _OrderDetail extends StatelessWidget {
               ),
             ),
           ],
+          if (status == 'Nuevo pedido')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.cancel_outlined),
+                label: const Text('Rechazar pedido'),
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Rechazar pedido'),
+                      content: const Text('¿Quieres rechazar este pedido?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Volver'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Rechazar'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) await onStatusChanged('Rechazado');
+                },
+              ),
+            ),
         ],
       ),
     );

@@ -24,6 +24,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   late final Object _orderId;
   Map<String, dynamic> _order = {};
   bool _loading = true;
+  bool _updating = false;
   String? _error;
   Timer? _timer;
 
@@ -73,7 +74,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   void _scheduleRefreshIfActive() {
     _timer?.cancel();
-    if (!_isDelivered) {
+    if (!_isClosed) {
       _timer = Timer.periodic(
         const Duration(seconds: 15),
         (_) => _loadOrder(silent: true),
@@ -83,6 +84,60 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   bool get _isDelivered =>
       '${_order['status']}'.toLowerCase().contains('entregado');
+
+  bool get _isClosed => _isDelivered || _isCancelled;
+  bool get _isCancelled {
+    final status = '${_order['status']}'.toLowerCase();
+    return status == 'cancelado' || status == 'rechazado';
+  }
+
+  Future<void> _cancelOrder() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancelar pedido'),
+        content: const Text('¿Quieres cancelar este pedido?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancelar pedido'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _updating = true);
+    try {
+      final response = await _appProvider.updateOrderStatus(
+        _orderId,
+        'Cancelado',
+      );
+      if (!mounted) return;
+      if (response.success == true) {
+        await _loadOrder();
+      } else {
+        Get.snackbar(
+          'No se pudo cancelar',
+          response.message ?? 'Actualiza el pedido e intenta nuevamente.',
+        );
+        await _loadOrder(silent: true);
+      }
+    } catch (_) {
+      if (mounted) {
+        Get.snackbar(
+          'No se pudo confirmar',
+          'Revisa el estado del pedido antes de reintentar.',
+        );
+        await _loadOrder(silent: true);
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
 
   int get _currentStep {
     final s = '${_order['status']}'.toLowerCase();
@@ -182,11 +237,19 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
       children: [
         _StatusHeader(statusText: '${_order['status']}', step: _currentStep),
         const SizedBox(height: 20),
-        if (!_isDelivered) ...[
+        if (!_isClosed) ...[
           DeliveryCodePanel(order: _order),
           const SizedBox(height: 20),
         ],
-        _StatusTimeline(currentStep: _currentStep),
+        if (!_isCancelled) _StatusTimeline(currentStep: _currentStep),
+        if ('${_order['status']}'.toLowerCase() == 'nuevo pedido') ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _updating ? null : _cancelOrder,
+            icon: const Icon(Icons.cancel_outlined),
+            label: const Text('Cancelar pedido'),
+          ),
+        ],
         const SizedBox(height: 22),
         _TrackingMap(
           pickupAddress: _pickupAddress,
@@ -243,7 +306,22 @@ class _StatusHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color, bg, description) = _meta(step);
+    final closed = statusText.toLowerCase();
+    final (
+      icon,
+      color,
+      bg,
+      description,
+    ) = closed == 'cancelado' || closed == 'rechazado'
+        ? (
+            Icons.cancel_outlined,
+            const Color(0xFF9C2732),
+            const Color(0xFFFFEAEC),
+            closed == 'cancelado'
+                ? 'Cancelaste este pedido.'
+                : 'El comercio rechazó este pedido.',
+          )
+        : _meta(step);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(

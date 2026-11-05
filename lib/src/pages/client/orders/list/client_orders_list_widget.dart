@@ -93,7 +93,7 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
 
     final active =
         _orders
-            .where((o) => !_OrderStatus.of('${o['status']}').isDelivered)
+            .where((o) => !_OrderStatus.of('${o['status']}').isClosed)
             .toList()
           ..sort(_compareOrders);
     final history =
@@ -163,20 +163,31 @@ enum _ClientOrderFilter { all, active, delivered }
 class _OrderStatus {
   final int step;
   final bool isDelivered;
+  final bool isClosed;
   final Color color;
 
   const _OrderStatus({
     required this.step,
     required this.isDelivered,
+    this.isClosed = false,
     required this.color,
   });
 
   factory _OrderStatus.of(String status) {
     final s = status.toLowerCase();
+    if (s == 'cancelado' || s == 'rechazado') {
+      return const _OrderStatus(
+        step: 0,
+        isDelivered: false,
+        isClosed: true,
+        color: Color(0xFF9C2732),
+      );
+    }
     if (s.contains('entregado')) {
       return const _OrderStatus(
         step: 4,
         isDelivered: true,
+        isClosed: true,
         color: Color(0xFF12643D),
       );
     }
@@ -382,7 +393,7 @@ class _OrderCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (!meta.isDelivered) ...[
+              if (!meta.isClosed) ...[
                 const SizedBox(height: 12),
                 _MiniTimeline(step: meta.step),
                 const SizedBox(height: 8),
