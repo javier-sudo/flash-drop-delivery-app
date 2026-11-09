@@ -109,15 +109,21 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     }
 
     final active = _orders
-        .where((o) => !OrderStage.of(o['status']).isDelivered)
+        .where((o) => !OrderStage.of(o['status']).isClosed)
         .toList();
     final history = _orders
         .where((o) => OrderStage.of(o['status']).isDelivered)
         .toList();
+    final closed = _orders.where((o) {
+      final stage = OrderStage.of(o['status']);
+      return stage.isClosed && !stage.isDelivered;
+    }).toList();
     final showActive = _filter != _Filter.delivered;
     final showHistory = _filter != _Filter.active;
     final shown =
-        (showActive ? active.length : 0) + (showHistory ? history.length : 0);
+        (showActive ? active.length : 0) +
+        (showHistory ? history.length : 0) +
+        (_filter == _Filter.all ? closed.length : 0);
 
     return RefreshIndicator(
       onRefresh: _loadOrders,
@@ -151,6 +157,11 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
           if (showHistory && history.isNotEmpty) ...[
             const SectionTitle('Historial'),
             for (final o in history)
+              _PastOrderCard(order: o, onTap: () => _openTracking(o)),
+          ],
+          if (_filter == _Filter.all && closed.isNotEmpty) ...[
+            const SectionTitle('Cancelados y rechazados'),
+            for (final o in closed)
               _PastOrderCard(order: o, onTap: () => _openTracking(o)),
           ],
         ],
@@ -320,7 +331,12 @@ class _PastOrderCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.check_rounded, color: FD.navy),
+            child: Icon(
+              OrderStage.of(order['status']).isDelivered
+                  ? Icons.check_rounded
+                  : Icons.cancel_outlined,
+              color: FD.navy,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/products/list/client_products_list_page.dart';
@@ -129,6 +130,11 @@ void main() {
   testWidgets(
     'confirmar el pedido envía los ítems, vacía el carrito y abre Mis pedidos',
     (tester) async {
+      await GetStorage().write('delivery_address', {
+        'address': 'Direccion anterior, Maipu',
+        'lat': -33.5,
+        'lng': -70.7,
+      });
       final provider = await pumpClientHome(tester);
       await tester.ensureVisible(find.text('Urban Burger').first);
       await tester.pumpAndSettle();
@@ -145,6 +151,7 @@ void main() {
       expect(find.text('PIN obligatorio para la entrega'), findsOneWidget);
 
       // Dirección demasiado corta: no debe enviar el pedido.
+      await tester.enterText(find.byType(TextField), 'abc');
       await tester.tap(find.textContaining('PEDIR AHORA'));
       await tester.pump();
       expect(provider.lastOrderItems, isNull);
@@ -162,6 +169,10 @@ void main() {
         {'product_id': 101, 'quantity': 1},
       ]);
       expect(provider.lastReceptionMode, 'SEGURO');
+      final savedAddress = GetStorage().read('delivery_address') as Map;
+      expect(savedAddress['address'], 'Av. Providencia 2000, Providencia');
+      expect(savedAddress['lat'], isNull);
+      expect(savedAddress['lng'], isNull);
       expect(Get.find<CartController>().count, 0);
       expect(find.text('Mis pedidos'), findsWidgets);
       expect(find.textContaining('Urban Burger'), findsWidgets);

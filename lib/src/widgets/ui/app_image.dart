@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
 
 /// Imagen de red o de assets con placeholder consistente.
@@ -21,8 +22,9 @@ class AppImage extends StatelessWidget {
       alignment: Alignment.center,
       child: Icon(fallbackIcon, color: AppColors.primary, size: 34),
     );
-    final src = source ?? '';
-    if (src.startsWith('http')) {
+    final src = resolveImageSource(source);
+    if (src == null) return placeholder;
+    if (src.startsWith('http://') || src.startsWith('https://')) {
       return Image.network(
         src,
         fit: fit,
@@ -40,4 +42,20 @@ class AppImage extends StatelessWidget {
     }
     return placeholder;
   }
+}
+
+String? resolveImageSource(String? value) {
+  final src = value?.trim() ?? '';
+  if (src.isEmpty) return null;
+  if (src.startsWith('assets/') ||
+      src.startsWith('http://') ||
+      src.startsWith('https://')) {
+    return src;
+  }
+  if (src.startsWith('/catalog/') || src.startsWith('catalog/')) {
+    return Uri.parse(
+      Environment.apiUrl,
+    ).resolve('/${src.replaceFirst(RegExp(r'^/+'), '')}').toString();
+  }
+  return null;
 }

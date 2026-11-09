@@ -14,7 +14,11 @@ class RegisteredAddressResolver {
   static Future<LatLng?> resolve(String address) {
     final normalized = _normalize(address);
     if (normalized.isEmpty) return Future.value(null);
-    return _results.putIfAbsent(normalized, () => _lookup(normalized));
+    return _results.putIfAbsent(normalized, () async {
+      final result = await _lookup(normalized);
+      if (result == null) _results.remove(normalized);
+      return result;
+    });
   }
 
   /// Solo para tests.

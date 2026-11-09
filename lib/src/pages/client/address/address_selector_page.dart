@@ -28,6 +28,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   bool _reverseGeocoding = false;
   bool _forwardGeocoding = false;
   Timer? _debounce;
+  int _locationRevision = 0;
 
   @override
   void initState() {
@@ -67,6 +68,12 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   // Búsqueda por texto → mover mapa
   void _onSearchChanged(String query) {
     _debounce?.cancel();
+    _locationRevision++;
+    setState(() {
+      _addressText = '';
+      _forwardGeocoding = false;
+      _reverseGeocoding = false;
+    });
     if (query.trim().length < 5) return;
     _debounce = Timer(
       const Duration(milliseconds: 700),
@@ -76,10 +83,11 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
 
   Future<void> _forwardGeocode(String query) async {
     if (!mounted) return;
+    final revision = ++_locationRevision;
     setState(() => _forwardGeocoding = true);
     try {
       final newCenter = await RegisteredAddressResolver.resolve(query);
-      if (!mounted) return;
+      if (!mounted || revision != _locationRevision) return;
       if (newCenter == null) {
         setState(() => _forwardGeocoding = false);
         return;
@@ -91,26 +99,35 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
         _forwardGeocoding = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _forwardGeocoding = false);
+      if (mounted && revision == _locationRevision) {
+        setState(() => _forwardGeocoding = false);
+      }
     }
   }
 
   // Mapa arrastrado → geocodificación inversa
   void _onMapMoved(LatLng center) {
     _center = center;
+    _locationRevision++;
+    setState(() {
+      _addressText = '';
+      _forwardGeocoding = false;
+      _reverseGeocoding = false;
+    });
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 700), _reverseGeocode);
   }
 
   Future<void> _reverseGeocode() async {
     if (!mounted) return;
+    final revision = ++_locationRevision;
     setState(() => _reverseGeocoding = true);
     try {
       final placemarks = await placemarkFromCoordinates(
         _center.latitude,
         _center.longitude,
       );
-      if (!mounted) return;
+      if (!mounted || revision != _locationRevision) return;
       if (placemarks.isNotEmpty) {
         final p = placemarks.first;
         final parts = <String>[
@@ -126,10 +143,14 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
         });
       }
     } catch (_) {}
-    if (mounted) setState(() => _reverseGeocoding = false);
+    if (mounted && revision == _locationRevision) {
+      setState(() => _reverseGeocoding = false);
+    }
   }
 
   void _selectSavedAddress(Map<String, dynamic> saved) {
+    _debounce?.cancel();
+    _locationRevision++;
     final lat = (saved['lat'] as num?)?.toDouble();
     final lng = (saved['lng'] as num?)?.toDouble();
     final addr = saved['address']?.toString() ?? '';
@@ -137,6 +158,8 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
       final newCenter = LatLng(lat, lng);
       _mapController.move(newCenter, 15);
       setState(() {
+        _forwardGeocoding = false;
+        _reverseGeocoding = false;
         _center = newCenter;
         _addressText = addr;
         _searchController.text = addr;
@@ -145,7 +168,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   }
 
   Future<void> _confirmAddress() async {
-    if (_addressText.trim().isEmpty) {
+    if (_addressText.trim().isEmpty || _forwardGeocoding || _reverseGeocoding) {
       Get.snackbar(
         'Falta la dirección',
         'Mueve el mapa o escribe una dirección.',
@@ -163,7 +186,9 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   }
 
   Future<void> _saveWithLabel(String label) async {
-    if (_addressText.trim().isEmpty) return;
+    if (_addressText.trim().isEmpty || _forwardGeocoding || _reverseGeocoding) {
+      return;
+    }
     final entry = {
       'address': _addressText.trim(),
       'label': label,
@@ -221,7 +246,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                       : IconButton(
                           onPressed: () {
                             _searchController.clear();
-                            setState(() {});
+                            _onSearchChanged('');
                           },
                           icon: const Icon(Icons.close),
                         ),

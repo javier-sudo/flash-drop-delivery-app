@@ -46,6 +46,20 @@ void main() {
   });
 
   group('Restaurante', () {
+    testWidgets('rechaza un pedido nuevo solo despues de confirmar', (
+      tester,
+    ) async {
+      await pumpPage(tester, const RestaurantOrdersListPage(), seed: true);
+      await tester.tap(find.text('Camila Torres'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rechazar pedido'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Quieres rechazar este pedido?'), findsOneWidget);
+      await tester.tap(find.text('Rechazar').last);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text('Nuevos (0)'), findsOneWidget);
+    });
+
     testWidgets('filtra por estado y acepta un pedido nuevo', (tester) async {
       await pumpPage(tester, const RestaurantOrdersListPage(), seed: true);
 

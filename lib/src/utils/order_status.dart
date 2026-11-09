@@ -24,9 +24,13 @@ class OrderStage {
   static const ready = OrderStage._(2, Color(0xFF8A5700));
   static const onTheWay = OrderStage._(3, Color(0xFF1565C0));
   static const delivered = OrderStage._(4, Color(0xFF12643D));
+  static const cancelled = OrderStage._(-1, Color(0xFF9C2732));
+  static const rejected = OrderStage._(-2, Color(0xFF9C2732));
 
   factory OrderStage.of(Object? status) {
     final s = '${status ?? ''}'.toLowerCase();
+    if (s == 'cancelado') return cancelled;
+    if (s == 'rechazado') return rejected;
     if (s.contains('entregado')) return delivered;
     if (s.contains('camino') || s.contains('retirado')) return onTheWay;
     if (s.contains('listo') || s.contains('asignado')) return ready;
@@ -35,10 +39,17 @@ class OrderStage {
   }
 
   bool get isDelivered => step == delivered.step;
-  String get label => labels[step];
+  bool get isClosed => isDelivered || step < 0;
+  String get label => step == -1
+      ? 'Cancelado'
+      : step == -2
+      ? 'Rechazado'
+      : labels[step];
 
   /// Titular corto de la tarjeta amarilla del pedido.
   String get headline => switch (step) {
+    -1 => 'Pedido cancelado',
+    -2 => 'Pedido rechazado',
     0 => '¡Pedido confirmado!',
     1 => 'Preparando tu pedido',
     2 => 'Listo para retiro',
@@ -48,6 +59,8 @@ class OrderStage {
 
   /// Frase para la cabecera del seguimiento.
   String get message => switch (step) {
+    -1 => 'Cancelaste este pedido.',
+    -2 => 'El comercio rechazó este pedido.',
     0 => 'El comercio recibió tu pedido.',
     1 => 'El local está preparando tu pedido.',
     2 => 'Tu pedido está listo; un repartidor lo retirará pronto.',

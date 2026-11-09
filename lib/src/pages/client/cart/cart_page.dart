@@ -122,7 +122,7 @@ class _CartPageState extends State<CartPage> {
       setState(() => _placing = false);
       Get.snackbar(
         'Sin conexión',
-        'No pudimos enviar tu pedido. Revisa tu conexión e intenta nuevamente.',
+        'No pudimos confirmar el resultado. Revisa Mis pedidos antes de volver a intentarlo.',
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -132,6 +132,7 @@ class _CartPageState extends State<CartPage> {
       await _rememberAddress(address);
       await _rememberDeliveryCode(response.data);
       _cart.clear();
+      _addressEdited = false;
       // Vuelve a la pantalla principal del cliente (cierra checkout y menú)
       // y abre "Mis pedidos".
       // Como pestaña el estado sigue vivo: deja el botón listo otra vez.
@@ -168,7 +169,11 @@ class _CartPageState extends State<CartPage> {
   Future<void> _rememberAddress(String address) async {
     await _box.write('deliveryAddress', address);
     final raw = _box.read('delivery_address');
-    final updated = raw is Map
+    final matches =
+        raw is Map &&
+        '${raw['address'] ?? ''}'.trim().toLowerCase() ==
+            address.trim().toLowerCase();
+    final updated = raw is Map && matches
         ? (Map<String, dynamic>.from(raw)..['address'] = address)
         : {'address': address, 'label': null, 'lat': null, 'lng': null};
     await _box.write('delivery_address', updated);

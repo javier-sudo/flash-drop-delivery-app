@@ -20,7 +20,8 @@ enum RestaurantTab {
   preparing('Preparando'),
   ready('Listos'),
   inTransit('En ruta'),
-  delivered('Entregados');
+  delivered('Entregados'),
+  closed('Cancelados');
 
   final String label;
   const RestaurantTab(this.label);
@@ -45,6 +46,12 @@ class RestaurantOrderStatus {
 
   factory RestaurantOrderStatus.of(String status) {
     final s = status.toLowerCase();
+    if (s == 'cancelado' || s == 'rechazado') {
+      return const RestaurantOrderStatus._(
+        RestaurantTab.closed,
+        Color(0xFF9C2732),
+      );
+    }
     if (s == 'nuevo pedido') {
       return const RestaurantOrderStatus._(
         RestaurantTab.incoming,
@@ -893,6 +900,34 @@ class _OrderDetail extends StatelessWidget {
                 ),
               ),
             ),
+          if ('${order['status']}'.toLowerCase() == 'nuevo pedido')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.cancel_outlined),
+                label: const Text('Rechazar pedido'),
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Rechazar pedido'),
+                      content: const Text('¿Quieres rechazar este pedido?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Volver'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Rechazar'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) await onStatusChanged('Rechazado');
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -984,6 +1019,7 @@ class _EmptyOrders extends StatelessWidget {
       RestaurantTab.ready => 'No hay pedidos listos para retiro',
       RestaurantTab.inTransit => 'No hay pedidos en ruta',
       RestaurantTab.delivered => 'Aún no hay pedidos entregados',
+      RestaurantTab.closed => 'No hay pedidos cancelados o rechazados',
     };
     return Padding(
       padding: const EdgeInsets.only(top: 16),

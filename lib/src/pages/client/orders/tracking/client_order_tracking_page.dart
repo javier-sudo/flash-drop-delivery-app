@@ -32,6 +32,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   late final Object _orderId;
   Map<String, dynamic> _order = {};
   bool _loading = true;
+  bool _updating = false;
   String? _error;
   Timer? _timer;
 
@@ -87,7 +88,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   void _scheduleRefreshIfActive() {
     _timer?.cancel();
-    if (!_isDelivered) {
+    if (!_stage.isClosed) {
       _timer = Timer.periodic(
         const Duration(seconds: 15),
         (_) => _loadOrder(silent: true),
@@ -99,9 +100,54 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   bool get _isDelivered => _stage.isDelivered;
 
+  Future<void> _cancelOrder() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancelar pedido'),
+        content: const Text('¿Quieres cancelar este pedido?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancelar pedido'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _updating = true);
+    try {
+      final result = await _appProvider.updateOrderStatus(
+        _orderId,
+        'Cancelado',
+      );
+      if (!mounted) return;
+      if (result.success != true) {
+        Get.snackbar(
+          'No se pudo cancelar',
+          result.message ?? 'Actualiza e intenta nuevamente.',
+        );
+      }
+      await _loadOrder(silent: true);
+    } catch (_) {
+      if (!mounted) return;
+      Get.snackbar(
+        'No se pudo confirmar',
+        'Revisa el estado antes de reintentar.',
+      );
+      await _loadOrder(silent: true);
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
   /// Pedidos con entrega segura (o que ya traen PIN) muestran el código.
   bool get _showsDeliveryCode =>
-      !_isDelivered &&
+      !_stage.isClosed &&
       ('${_order['receptionMode'] ?? _order['reception_mode'] ?? ''}'
                   .toUpperCase() ==
               'SEGURO' ||
@@ -193,12 +239,21 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 32),
       children: [
         _StatusHero(order: _order, stage: _stage),
+        if ('${_order['status']}'.toLowerCase() == 'nuevo pedido') ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _updating ? null : _cancelOrder,
+            icon: const Icon(Icons.cancel_outlined),
+            label: const Text('Cancelar pedido'),
+          ),
+        ],
         if (_showsDeliveryCode) ...[
           const SizedBox(height: 12),
           DeliveryCodePanel(order: _order),
         ],
         const SizedBox(height: 12),
-        _StepsCard(currentStep: _stage.step),
+        if (!_stage.isClosed || _isDelivered)
+          _StepsCard(currentStep: _stage.step),
         const SizedBox(height: 12),
         _TrackingMap(
           pickupCoord: _pickupCoord,
@@ -315,11 +370,13 @@ class _StatusHero extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 alignment: Alignment.center,
-                child: OrderStepImage(step: stage.step, size: 46),
+                child: stage.step < 0
+                    ? const Icon(Icons.cancel_outlined, size: 38)
+                    : OrderStepImage(step: stage.step, size: 46),
               ),
             ],
           ),
-          if (!stage.isDelivered && minutes != null) ...[
+          if (!stage.isClosed && minutes != null) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -334,7 +391,7 @@ class _StatusHero extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          StageProgressBars(step: stage.step),
+          if (stage.step >= 0) StageProgressBars(step: stage.step),
           const SizedBox(height: 8),
           Text(
             '${order['status']}',
