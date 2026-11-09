@@ -82,11 +82,22 @@ Santiago y la moto parte en el local.
 
 ## Rediseno del cliente
 
-La experiencia del cliente sigue la estructura de las apps de delivery tipo
-marketplace (inicio con carruseles, menu por restaurante, carrito y checkout),
-con la paleta de Flash Drop. Capturas en `docs/rediseno-cliente/`.
+La experiencia del cliente sigue el diseno "Flash Drop App redesign": fondo
+crema, tinta azul marino (`#0E1A35`), amarillo de marca (`#FFC72C`), azul de
+acento (`#1F6BFF`) y tipografia Archivo (titulos en italica). Los tokens viven en
+`lib/src/theme/client_theme.dart` (`FD`) y se aplican solo a las pantallas del
+cliente con el widget `ClientTheme`; restaurante y repartidor conservan su tema.
 
-- Navegacion inferior: Inicio, Restaurantes, Buscar, Pedidos y Perfil.
+- Navegacion inferior: Inicio, Buscar, Carrito, Pedidos y Perfil.
+- Inicio: cabecera amarilla con direccion y carrito, grilla de categorias que
+  filtra los comercios, banner Flash Club (aun sin backend: "Unirme" avisa que
+  viene pronto), carrusel "Comercios cerca de ti" y "Lo mas pedido".
+- Comercio: portada, tarjeta con calificacion, entrega y envio, barra de
+  categorias fija y productos en grilla de dos columnas.
+- Carrito: pestana propia con direccion, forma de pago, aviso de PIN y boton
+  "PEDIR AHORA". Pedidos en curso en tarjetas amarillas con barras de avance.
+- Fuente Archivo (SIL OFL 1.1) incluida en `assets/fonts/` con su licencia
+  `OFL.txt`.
 - `CatalogController` arma la vista por restaurante desde `/catalog/restaurants` y
   `/catalog/products`. Los campos `image`, `rating`, `deliveryTime` y `description`
   de un restaurante son opcionales: si Catalog los entrega se muestran, si no se

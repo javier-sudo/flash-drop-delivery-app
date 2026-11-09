@@ -37,6 +37,15 @@ class OrderStage {
   bool get isDelivered => step == delivered.step;
   String get label => labels[step];
 
+  /// Titular corto de la tarjeta amarilla del pedido.
+  String get headline => switch (step) {
+    0 => '¡Pedido confirmado!',
+    1 => 'Preparando tu pedido',
+    2 => 'Listo para retiro',
+    3 => 'Va en camino',
+    _ => 'Entregado',
+  };
+
   /// Frase para la cabecera del seguimiento.
   String get message => switch (step) {
     0 => 'El comercio recibió tu pedido.',

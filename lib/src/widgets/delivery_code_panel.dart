@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 
 /// Código de entrega (PIN de 6 dígitos) que el cliente comparte con el
 /// repartidor al recibir el pedido. Lo entrega Orders en `deliveryCode` solo a
@@ -24,7 +25,7 @@ class DeliveryCodePanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: available ? const Color(0xFF1E2025) : const Color(0xFFFFF8E1),
+        color: available ? FD.navy : FD.soft,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -33,10 +34,10 @@ class DeliveryCodePanel extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xFFFFB300).withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(12),
+              color: FD.yellow,
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.lock_outline, color: Color(0xFFFFB300)),
+            child: const Icon(Icons.lock_outline, color: FD.navy),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -45,9 +46,10 @@ class DeliveryCodePanel extends StatelessWidget {
               children: [
                 Text(
                   'Código de entrega',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: available ? Colors.white70 : const Color(0xFF8A5700),
+                  style: FD.text(
+                    13.5,
+                    weight: FontWeight.w800,
+                    color: available ? const Color(0xFFDFE3EC) : FD.brown,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -56,23 +58,28 @@ class DeliveryCodePanel extends StatelessWidget {
                   Text(
                     pin,
                     style: const TextStyle(
-                      fontSize: 28,
+                      fontFamily: FD.font,
+                      fontSize: 30,
                       letterSpacing: 6,
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFFFFB300),
+                      color: FD.yellow,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
                   const Text(
                     'Compártelo solo al recibir tu pedido.',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    style: TextStyle(
+                      fontFamily: FD.font,
+                      color: Color(0xFFDFE3EC),
+                      fontSize: 12,
+                    ),
                   ),
                 ] else
                   Text(
                     mode == 'NORMAL'
                         ? 'Este pedido anterior no tiene código de entrega.'
                         : 'Código no disponible. Actualiza el pedido con la cuenta que lo creó.',
-                    style: const TextStyle(color: Color(0xFF6A4300)),
+                    style: FD.text(13, color: FD.brown),
                   ),
               ],
             ),

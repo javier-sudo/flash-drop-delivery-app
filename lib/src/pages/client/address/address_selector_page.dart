@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 
 class AddressSelectorPage extends StatefulWidget {
   const AddressSelectorPage({super.key});
@@ -189,305 +190,311 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   Widget build(BuildContext context) {
     final saved = _savedAddresses;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('¿A dónde entregamos?')),
-      body: Column(
-        children: [
-          // ── Barra de búsqueda ─────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onChanged: _onSearchChanged,
-              onSubmitted: _forwardGeocode,
-              decoration: InputDecoration(
-                hintText: 'Buscar calle, número o barrio...',
-                prefixIcon: _forwardGeocoding
-                    ? const Padding(
-                        padding: EdgeInsets.all(14),
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+    // Pantalla del cliente: usa el tema del rediseño.
+    return ClientTheme(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('¿A dónde entregamos?')),
+        body: Column(
+          children: [
+            // ── Barra de búsqueda ─────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                onChanged: _onSearchChanged,
+                onSubmitted: _forwardGeocode,
+                decoration: InputDecoration(
+                  hintText: 'Buscar calle, número o barrio...',
+                  prefixIcon: _forwardGeocoding
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close),
                         ),
-                      )
-                    : const Icon(Icons.search),
-                suffixIcon: _searchController.text.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
-                filled: true,
-                fillColor: const Color(0xFFF7F7F7),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFFFB300),
-                    width: 1.5,
+                  filled: true,
+                  fillColor: const Color(0xFFF7F7F7),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFFFB300),
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
 
-          // ── Mapa con pin central ──────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                height: 230,
-                child: Stack(
-                  children: [
-                    FlutterMap(
-                      mapController: _mapController,
-                      options: MapOptions(
-                        initialCenter: _center,
-                        initialZoom: 15,
-                        onPositionChanged: (camera, hasGesture) {
-                          if (hasGesture) _onMapMoved(camera.center);
-                        },
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate:
-                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName:
-                              'com.javier.proyecto_app_delivery_gessof',
+            // ── Mapa con pin central ──────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: SizedBox(
+                  height: 230,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _center,
+                          initialZoom: 15,
+                          onPositionChanged: (camera, hasGesture) {
+                            if (hasGesture) _onMapMoved(camera.center);
+                          },
                         ),
-                        RichAttributionWidget(
-                          attributions: [
-                            TextSourceAttribution(
-                              'OpenStreetMap contributors',
-                              onTap: () => launchUrl(
-                                Uri.parse(
-                                  'https://openstreetmap.org/copyright',
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName:
+                                'com.javier.proyecto_app_delivery_gessof',
+                          ),
+                          RichAttributionWidget(
+                            attributions: [
+                              TextSourceAttribution(
+                                'OpenStreetMap contributors',
+                                onTap: () => launchUrl(
+                                  Uri.parse(
+                                    'https://openstreetmap.org/copyright',
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    // Pin centrado
-                    const IgnorePointer(
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.location_pin,
-                              color: Color(0xFFFFB300),
-                              size: 52,
-                            ),
-                            SizedBox(height: 26),
-                          ],
+                            ],
+                          ),
+                        ],
+                      ),
+                      // Pin centrado
+                      const IgnorePointer(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.location_pin,
+                                color: Color(0xFFFFB300),
+                                size: 52,
+                              ),
+                              SizedBox(height: 26),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    // Indicador de geocodificación
-                    if (_reverseGeocoding)
+                      // Indicador de geocodificación
+                      if (_reverseGeocoding)
+                        Positioned(
+                          top: 10,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 13,
+                                    height: 13,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Detectando dirección...',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Hint para arrastrar
                       Positioned(
-                        top: 10,
+                        bottom: 10,
                         left: 0,
                         right: 0,
                         child: Center(
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 6,
+                              horizontal: 12,
+                              vertical: 5,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.92),
+                              color: Colors.white.withValues(alpha: 0.88),
                               borderRadius: BorderRadius.circular(20),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.08),
-                                  blurRadius: 8,
-                                ),
-                              ],
                             ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 13,
-                                  height: 13,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Detectando dirección...',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ],
+                            child: const Text(
+                              'Arrastra el mapa para ajustar',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF6A6F77),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    // Hint para arrastrar
-                    Positioned(
-                      bottom: 10,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.88),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Text(
-                            'Arrastra el mapa para ajustar',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF6A6F77),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          // ── Dirección detectada ───────────────────────────
-          if (_addressText.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8E1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFFFFB300).withValues(alpha: 0.5),
+            // ── Dirección detectada ───────────────────────────
+            if (_addressText.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8E1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFFFB300).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on,
+                        color: Color(0xFFFFB300),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _addressText,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
+
+            // ── Direcciones guardadas ─────────────────────────
+            if (saved.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.location_on,
-                      color: Color(0xFFFFB300),
-                      size: 20,
+                      Icons.bookmark_outline,
+                      size: 15,
+                      color: Color(0xFF9EA5AD),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _addressText,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Guardadas',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: saved.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    final s = saved[i];
+                    final label = s['label']?.toString() ?? 'Dirección';
+                    return ActionChip(
+                      avatar: AddressLabelIcon(label),
+                      label: Text(label, style: const TextStyle(fontSize: 12)),
+                      onPressed: () => _selectSavedAddress(s),
+                    );
+                  },
+                ),
+              ),
+            ],
+
+            const Spacer(),
+
+            // ── Acciones inferiores ───────────────────────────
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Guardar como Casa / Trabajo
+                    if (_addressText.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          children: [
+                            const Text(
+                              'Guardar como:',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF6A6F77),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            _QuickSaveChip(
+                              label: 'Casa',
+                              onTap: () => _saveWithLabel('Casa'),
+                            ),
+                            const SizedBox(width: 8),
+                            _QuickSaveChip(
+                              label: 'Trabajo',
+                              onTap: () => _saveWithLabel('Trabajo'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: _addressText.isNotEmpty
+                            ? _confirmAddress
+                            : null,
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Usar esta dirección'),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-
-          // ── Direcciones guardadas ─────────────────────────
-          if (saved.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.bookmark_outline,
-                    size: 15,
-                    color: Color(0xFF9EA5AD),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Guardadas',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(
-              height: 36,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                scrollDirection: Axis.horizontal,
-                itemCount: saved.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (_, i) {
-                  final s = saved[i];
-                  final label = s['label']?.toString() ?? 'Dirección';
-                  return ActionChip(
-                    avatar: AddressLabelIcon(label),
-                    label: Text(label, style: const TextStyle(fontSize: 12)),
-                    onPressed: () => _selectSavedAddress(s),
-                  );
-                },
-              ),
-            ),
           ],
-
-          const Spacer(),
-
-          // ── Acciones inferiores ───────────────────────────
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Guardar como Casa / Trabajo
-                  if (_addressText.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Row(
-                        children: [
-                          const Text(
-                            'Guardar como:',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF6A6F77),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          _QuickSaveChip(
-                            label: 'Casa',
-                            onTap: () => _saveWithLabel('Casa'),
-                          ),
-                          const SizedBox(width: 8),
-                          _QuickSaveChip(
-                            label: 'Trabajo',
-                            onTap: () => _saveWithLabel('Trabajo'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  SizedBox(
-                    height: 52,
-                    child: FilledButton.icon(
-                      onPressed: _addressText.isNotEmpty
-                          ? _confirmAddress
-                          : null,
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Usar esta dirección'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

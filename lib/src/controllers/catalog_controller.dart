@@ -143,6 +143,16 @@ class CatalogController extends GetxController {
   List<RestaurantView> restaurantsWithCategory(String category) =>
       restaurants.where((r) => r.categories.contains(category)).toList();
 
+  /// Comercios cuyo nombre, descripción o categorías coinciden.
+  List<RestaurantView> searchRestaurants(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return [];
+    return restaurants.where((r) {
+      final text = [r.name, r.description ?? '', ...r.categories].join(' ');
+      return text.toLowerCase().contains(q);
+    }).toList();
+  }
+
   /// Busca por nombre de producto, restaurante o categoría.
   List<Map<String, dynamic>> searchProducts(String query) {
     final q = query.trim().toLowerCase();

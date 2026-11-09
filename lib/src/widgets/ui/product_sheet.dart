@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
-import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/app_image.dart';
 
@@ -15,7 +15,7 @@ Future<void> showProductSheet(
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ProductSheet(product: product),
+    builder: (_) => ClientTheme(child: _ProductSheet(product: product)),
   );
 }
 
@@ -72,7 +72,7 @@ class _ProductSheetState extends State<_ProductSheet> {
 
     return Container(
       decoration: const BoxDecoration(
-        color: AppColors.surface,
+        color: FD.cream,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
@@ -98,7 +98,7 @@ class _ProductSheetState extends State<_ProductSheet> {
                   tooltip: 'Cerrar',
                   style: IconButton.styleFrom(backgroundColor: Colors.white),
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, color: AppColors.ink),
+                  icon: const Icon(Icons.close, color: FD.navy),
                 ),
               ),
             ],
@@ -108,36 +108,20 @@ class _ProductSheetState extends State<_ProductSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${product['name']}',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+                Text('${product['name']}', style: FD.display(24)),
                 const SizedBox(height: 4),
-                Text(
-                  clp(price),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    color: AppColors.primaryDark,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+                Text(clp(price), style: FD.text(18, weight: FontWeight.w800)),
                 if (description.isNotEmpty && description != 'null') ...[
                   const SizedBox(height: 10),
                   Text(
                     description,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 15,
-                    ),
+                    style: FD.text(15, color: FD.muted, height: 1.4),
                   ),
                 ],
               ],
             ),
           ),
-          const Divider(height: 24, indent: 20, endIndent: 20),
+          const Divider(height: 24, indent: 20, endIndent: 20, color: FD.line),
           SafeArea(
             top: false,
             child: Padding(
@@ -153,6 +137,11 @@ class _ProductSheetState extends State<_ProductSheet> {
                     child: SizedBox(
                       height: 52,
                       child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
                         onPressed: () async {
                           final added = await addToCartWithConfirm(
                             context,
@@ -192,24 +181,21 @@ class _Stepper extends StatelessWidget {
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
           IconButton(
             tooltip: 'Quitar uno',
             onPressed: value > 1 ? () => onChanged(value - 1) : null,
-            icon: const Icon(Icons.remove),
+            icon: const Icon(Icons.remove, color: FD.navy),
           ),
-          Text(
-            '$value',
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-          ),
+          Text('$value', style: FD.text(16, weight: FontWeight.w800)),
           IconButton(
             tooltip: 'Agregar uno',
             onPressed: value < 20 ? () => onChanged(value + 1) : null,
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add, color: FD.navy),
           ),
         ],
       ),

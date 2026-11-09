@@ -119,7 +119,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Entregados · 1'));
       await tester.pumpAndSettle();
-      expect(find.text('Entregado'), findsWidgets);
+      // La tarjeta del historial muestra "código · estado".
+      expect(find.textContaining('· Entregado'), findsOneWidget);
       expect(find.text('Nuevo pedido'), findsNothing);
 
       await tester.ensureVisible(find.text('En curso · 5'));

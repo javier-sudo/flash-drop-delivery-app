@@ -1,6 +1,6 @@
 import 'package:get/get.dart';
 
-enum ClientTab { discovery, restaurants, search, orders, profile }
+enum ClientTab { discovery, search, cart, orders, profile }
 
 /// Pestaña activa de la navegación inferior del cliente.
 class ClientShellController extends GetxController {
@@ -12,5 +12,17 @@ class ClientShellController extends GetxController {
   void goTo(ClientTab value) {
     if (value == ClientTab.orders) ordersVersion.value++;
     tab.value = value;
+  }
+
+  /// Vuelve a la pantalla principal del cliente (cierra menús abiertos) y
+  /// muestra la pestaña pedida.
+  static void openTab(ClientTab value) {
+    Get.until(
+      (route) =>
+          route.settings.name == '/client/products/list' || route.isFirst,
+    );
+    if (Get.isRegistered<ClientShellController>()) {
+      Get.find<ClientShellController>().goTo(value);
+    }
   }
 }

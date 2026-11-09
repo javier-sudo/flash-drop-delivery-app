@@ -5,7 +5,9 @@ import 'package:get/get.dart';
 
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/common.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 enum _Filter { all, active, delivered }
@@ -76,6 +78,9 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     }
   }
 
+  void _openTracking(Map<String, dynamic> order) =>
+      Get.toNamed('/client/orders/tracking', arguments: order['id']);
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -84,7 +89,8 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
       // ListView para que el gesto de "tirar para actualizar" siga disponible.
       return ListView(
         children: [
-          const SizedBox(height: 40),
+          const PageTitle('Mis pedidos'),
+          const SizedBox(height: 24),
           IllustratedMessage(
             illustration: AppIllustration.noConnection,
             title: _error!,
@@ -96,7 +102,11 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
       );
     }
 
-    if (_orders.isEmpty) return const _EmptyState();
+    if (_orders.isEmpty) {
+      return ListView(
+        children: const [PageTitle('Mis pedidos'), _EmptyState()],
+      );
+    }
 
     final active = _orders
         .where((o) => !OrderStage.of(o['status']).isDelivered)
@@ -112,15 +122,16 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     return RefreshIndicator(
       onRefresh: _loadOrders,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
+          const PageTitle('Mis pedidos'),
+          const SizedBox(height: 12),
           _FilterBar(
             value: _filter,
             activeCount: active.length,
             deliveredCount: history.length,
             onChanged: (f) => setState(() => _filter = f),
           ),
-          const SizedBox(height: 14),
           if (shown == 0)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
@@ -129,39 +140,18 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
                     ? 'Aún no tienes pedidos entregados.'
                     : 'No tienes pedidos en curso.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF7B8189)),
+                style: FD.text(14, color: FD.muted),
               ),
             ),
           if (showActive && active.isNotEmpty) ...[
-            _SectionLabel(
-              title: 'En curso',
-              count: active.length,
-              dot: const Color(0xFF1769C2),
-            ),
-            const SizedBox(height: 10),
-            ...active.map(
-              (o) => _OrderCard(
-                order: o,
-                onTap: () =>
-                    Get.toNamed('/client/orders/tracking', arguments: o['id']),
-              ),
-            ),
-            const SizedBox(height: 22),
+            const SectionTitle('En curso', bolt: true),
+            for (final o in active)
+              _ActiveOrderCard(order: o, onTap: () => _openTracking(o)),
           ],
           if (showHistory && history.isNotEmpty) ...[
-            _SectionLabel(
-              title: 'Historial',
-              count: history.length,
-              dot: const Color(0xFF9EA5AD),
-            ),
-            const SizedBox(height: 10),
-            ...history.map(
-              (o) => _OrderCard(
-                order: o,
-                onTap: () =>
-                    Get.toNamed('/client/orders/tracking', arguments: o['id']),
-              ),
-            ),
+            const SectionTitle('Historial'),
+            for (final o in history)
+              _PastOrderCard(order: o, onTap: () => _openTracking(o)),
           ],
         ],
       ),
@@ -193,6 +183,7 @@ class _FilterBar extends StatelessWidget {
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Row(
         children: [
           for (final (filter, label) in options)
@@ -203,18 +194,16 @@ class _FilterBar extends StatelessWidget {
                 selected: value == filter,
                 onSelected: (_) => onChanged(filter),
                 showCheckmark: false,
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: value == filter
-                      ? const Color(0xFF1E2025)
-                      : const Color(0xFF6A6F77),
+                labelStyle: FD.text(
+                  13,
+                  weight: FontWeight.w700,
+                  color: value == filter ? FD.yellow : FD.navy,
                 ),
-                selectedColor: const Color(0xFFFFE08A),
+                selectedColor: FD.navy,
                 backgroundColor: Colors.white,
                 side: BorderSide(
-                  color: value == filter
-                      ? const Color(0xFFFFB300)
-                      : const Color(0xFFE4E7EC),
+                  color: value == filter ? FD.navy : const Color(0xFFE3DFD4),
+                  width: 1.5,
                 ),
                 shape: const StadiumBorder(),
               ),
@@ -225,131 +214,135 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  final String title;
-  final int count;
-  final Color dot;
+/// Pedido en curso: tarjeta amarilla con titular, llegada estimada y barras
+/// de avance (una por etapa).
+class _ActiveOrderCard extends StatelessWidget {
+  final Map<String, dynamic> order;
+  final VoidCallback onTap;
 
-  const _SectionLabel({
-    required this.title,
-    required this.count,
-    required this.dot,
-  });
+  const _ActiveOrderCard({required this.order, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+    final stage = OrderStage.of(order['status']);
+    final minutes = num.tryParse('${order['estimatedMinutes'] ?? ''}')?.round();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      child: Material(
+        color: FD.yellow,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Stack(
+            children: [
+              const Positioned(
+                right: -24,
+                top: -24,
+                child: Opacity(
+                  opacity: 0.18,
+                  child: BoltIcon(size: 120, color: FD.navy, outlined: false),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pedido ${order['code'] ?? ''} · ${_clp(order['total'])}',
+                      style: FD.text(
+                        12.5,
+                        weight: FontWeight.w700,
+                        color: FD.brown,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(stage.headline, style: FD.display(24)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${order['restaurantName'] ?? 'Comercio'}'
+                      '${minutes == null ? '' : ' · Llega aprox. en $minutes min'}',
+                      style: FD.text(13.5, weight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 14),
+                    StageProgressBars(step: stage.step),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: _StatusPill(text: '${order['status']}'),
+                        ),
+                        const SizedBox(width: 8),
+                        const Spacer(),
+                        Text(
+                          'Seguimiento',
+                          style: FD.text(13, weight: FontWeight.w800),
+                        ),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: FD.navy,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        Text('$count', style: const TextStyle(color: Color(0xFF7B8189))),
-      ],
+      ),
     );
   }
 }
 
-class _OrderCard extends StatelessWidget {
+/// Pedido entregado: tarjeta blanca compacta.
+class _PastOrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final VoidCallback onTap;
 
-  const _OrderCard({required this.order, required this.onTap});
+  const _PastOrderCard({required this.order, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final meta = OrderStage.of(order['status']);
-    final restaurant = '${order['restaurantName'] ?? 'Comercio'}';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+    return WhiteCard(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: FD.soft,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.check_rounded, color: FD.navy),
           ),
-        ],
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      restaurant,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  _StatusPill(text: '${order['status']}', color: meta.color),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.receipt_outlined,
-                    size: 15,
-                    color: Color(0xFF9EA5AD),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    '${order['code']}',
-                    style: const TextStyle(color: Color(0xFF6A6F77)),
-                  ),
-                  const Spacer(),
-                  Text(
-                    _clp(order['total']),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                ],
-              ),
-              if (!meta.isDelivered) ...[
-                const SizedBox(height: 12),
-                _MiniTimeline(step: meta.step),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(
-                      'Ver seguimiento',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${order['restaurantName'] ?? 'Comercio'}',
+                  style: FD.text(15, weight: FontWeight.w700),
+                ),
+                Text(
+                  '${order['code'] ?? ''} · ${order['status']}',
+                  style: FD.text(12.5, color: FD.muted),
                 ),
               ],
-            ],
+            ),
           ),
-        ),
+          Text(
+            _clp(order['total']),
+            style: FD.text(15, weight: FontWeight.w800),
+          ),
+        ],
       ),
     );
   }
@@ -357,72 +350,57 @@ class _OrderCard extends StatelessWidget {
 
 class _StatusPill extends StatelessWidget {
   final String text;
-  final Color color;
-
-  const _StatusPill({required this.text, required this.color});
+  const _StatusPill({required this.text});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: FD.navy,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         text,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: FD.text(11.5, weight: FontWeight.w700, color: FD.yellow),
       ),
     );
   }
 }
 
-class _MiniTimeline extends StatelessWidget {
+/// Cinco barras, una por etapa del pedido: las completadas en marino.
+class StageProgressBars extends StatelessWidget {
   final int step;
+  final Color done;
+  final Color pending;
 
-  const _MiniTimeline({required this.step});
+  const StageProgressBars({
+    super.key,
+    required this.step,
+    this.done = FD.navy,
+    this.pending = const Color(0x400E1A35),
+  });
 
   @override
   Widget build(BuildContext context) {
-    const labels = OrderStage.labels;
     return Row(
-      children: List.generate(labels.length, (i) {
-        final done = i <= step;
-        final active = i == step;
-        return Expanded(
-          child: Column(
-            children: [
-              // Alto fijo: el paso activo es más grande sin desalinear las etiquetas.
-              SizedBox(
-                height: 30,
-                child: Center(
-                  child: OrderStepImage(
-                    step: i,
-                    size: active ? 30 : 22,
-                    pending: !done,
-                  ),
-                ),
+      children: [
+        for (var i = 0; i < OrderStage.labels.length; i++) ...[
+          if (i > 0) const SizedBox(width: 5),
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              height: 6,
+              decoration: BoxDecoration(
+                color: i <= step ? done : pending,
+                borderRadius: BorderRadius.circular(3),
               ),
-              const SizedBox(height: 3),
-              Text(
-                labels[i],
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: active ? FontWeight.w900 : FontWeight.w400,
-                  color: done
-                      ? const Color(0xFF2C2C2C)
-                      : const Color(0xFFB0B5BB),
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      }),
+        ],
+      ],
     );
   }
 }

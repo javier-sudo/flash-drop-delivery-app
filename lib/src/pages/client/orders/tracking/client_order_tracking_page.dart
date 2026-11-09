@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/list/client_orders_list_widget.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/delivery_code_panel.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/map_tracking_osm.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/common.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 class ClientOrderTrackingPage extends StatefulWidget {
@@ -144,18 +147,20 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_loading ? 'Seguimiento' : '${_order['code'] ?? ''}'),
-        actions: [
-          IconButton(
-            tooltip: 'Actualizar',
-            onPressed: _loadOrder,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+    return ClientTheme(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_loading ? 'Seguimiento' : '${_order['code'] ?? ''}'),
+          actions: [
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _loadOrder,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
+        body: _body(context),
       ),
-      body: _body(context),
     );
   }
 
@@ -168,9 +173,9 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.cloud_off, size: 52),
+              const Icon(Icons.cloud_off, size: 52, color: FD.navy),
               const SizedBox(height: 12),
-              Text(_error!),
+              Text(_error!, style: FD.text(15, weight: FontWeight.w600)),
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: _loadOrder,
@@ -185,112 +190,155 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     final items = List<Map<String, dynamic>>.from(_order['items'] ?? []);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 32),
       children: [
-        _StatusHeader(statusText: '${_order['status']}', stage: _stage),
+        _StatusHero(order: _order, stage: _stage),
         if (_showsDeliveryCode) ...[
           const SizedBox(height: 12),
           DeliveryCodePanel(order: _order),
         ],
-        const SizedBox(height: 20),
-        _StatusTimeline(currentStep: _stage.step),
-        const SizedBox(height: 22),
+        const SizedBox(height: 12),
+        _StepsCard(currentStep: _stage.step),
+        const SizedBox(height: 12),
         _TrackingMap(
           pickupCoord: _pickupCoord,
           deliveryCoord: _deliveryCoord,
           resolving: !_geocoded,
         ),
-        const SizedBox(height: 18),
-        _InfoCard(
-          icon: Icons.location_on_outlined,
-          title: 'Dirección de entrega',
-          value: '${_order['address'] ?? '-'}',
-        ),
-        if (_order['estimatedMinutes'] != null) ...[
-          const SizedBox(height: 10),
-          _InfoCard(
-            icon: Icons.schedule,
-            title: 'Tiempo estimado',
-            value: '${_order['estimatedMinutes']} min',
+        const SizedBox(height: 12),
+        WhiteCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          radius: 20,
+          child: Column(
+            children: [
+              _InfoRow(
+                icon: Icons.location_on_outlined,
+                title: 'Dirección de entrega',
+                value: '${_order['address'] ?? '-'}',
+              ),
+              if (_order['estimatedMinutes'] != null)
+                _InfoRow(
+                  icon: Icons.schedule_rounded,
+                  title: 'Tiempo estimado',
+                  value: '${_order['estimatedMinutes']} min',
+                ),
+              if (_order['paymentMethod'] != null)
+                _InfoRow(
+                  icon: Icons.payments_outlined,
+                  title: 'Forma de pago',
+                  value: '${_order['paymentMethod']}',
+                  last: true,
+                ),
+            ],
           ),
-        ],
-        if (_order['paymentMethod'] != null) ...[
-          const SizedBox(height: 10),
-          _InfoCard(
-            icon: Icons.payments_outlined,
-            title: 'Forma de pago',
-            value: '${_order['paymentMethod']}',
-          ),
-        ],
-        const SizedBox(height: 20),
-        const Text(
-          'Tu pedido',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
         ),
-        const SizedBox(height: 10),
-        ...items.map((item) => _ItemRow(item: item)),
-        const Divider(height: 28),
-        _TotalRow(label: 'Subtotal', value: _order['subtotal']),
-        const SizedBox(height: 6),
-        _TotalRow(label: 'Envío', value: _order['deliveryFee']),
-        const SizedBox(height: 4),
-        _TotalRow(label: 'Total', value: _order['total'], strong: true),
+        const SizedBox(height: 12),
+        WhiteCard(
+          padding: const EdgeInsets.all(16),
+          radius: 20,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tu pedido', style: FD.section(19)),
+              const SizedBox(height: 6),
+              ...items.map((item) => _ItemRow(item: item)),
+              const Divider(height: 24, color: FD.line),
+              _TotalRow(label: 'Subtotal', value: _order['subtotal']),
+              const SizedBox(height: 6),
+              _TotalRow(label: 'Envío', value: _order['deliveryFee']),
+              const SizedBox(height: 6),
+              _TotalRow(label: 'Total', value: _order['total'], strong: true),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
 
-// ─── Status header ────────────────────────────────────────────────────────────
+// ─── Cabecera amarilla ────────────────────────────────────────────────────────
 
-class _StatusHeader extends StatelessWidget {
-  final String statusText;
+class _StatusHero extends StatelessWidget {
+  final Map<String, dynamic> order;
   final OrderStage stage;
 
-  const _StatusHeader({required this.statusText, required this.stage});
+  const _StatusHero({required this.order, required this.stage});
 
   @override
   Widget build(BuildContext context) {
-    final color = stage.color;
-    final bg = switch (stage.step) {
-      0 => const Color(0xFFEEF3FF),
-      3 => const Color(0xFFE8F0FE),
-      4 => const Color(0xFFE6F4ED),
-      _ => const Color(0xFFFFF8E1),
-    };
+    final minutes = order['estimatedMinutes'];
     return Container(
       padding: const EdgeInsets.all(18),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(18),
+        color: FD.yellow,
+        borderRadius: BorderRadius.circular(22),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: OrderStepImage(step: stage.step, size: 40),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    color: color,
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pedido ${order['code'] ?? ''} · ${_clp(order['total'])}',
+                      style: FD.text(
+                        12.5,
+                        weight: FontWeight.w700,
+                        color: FD.brown,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(stage.headline, style: FD.display(26)),
+                    const SizedBox(height: 4),
+                    Text(
+                      stage.message,
+                      style: FD.text(
+                        13.5,
+                        weight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(stage.message),
-              ],
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                alignment: Alignment.center,
+                child: OrderStepImage(step: stage.step, size: 46),
+              ),
+            ],
+          ),
+          if (!stage.isDelivered && minutes != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: FD.navy,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'Llega aprox. en $minutes min',
+                style: FD.text(12, weight: FontWeight.w700, color: FD.yellow),
+              ),
             ),
+          ],
+          const SizedBox(height: 14),
+          StageProgressBars(step: stage.step),
+          const SizedBox(height: 8),
+          Text(
+            '${order['status']}',
+            style: FD.text(12, weight: FontWeight.w700, color: FD.brown),
           ),
         ],
       ),
@@ -298,115 +346,135 @@ class _StatusHeader extends StatelessWidget {
   }
 }
 
-// ─── Status timeline ──────────────────────────────────────────────────────────
+// ─── Pasos del pedido ─────────────────────────────────────────────────────────
 
-class _StatusTimeline extends StatelessWidget {
+class _StepsCard extends StatelessWidget {
   final int currentStep;
-
-  const _StatusTimeline({required this.currentStep});
-
-  static const _labels = OrderStage.labels;
+  const _StepsCard({required this.currentStep});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+    const labels = OrderStage.labels;
+    return WhiteCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      radius: 20,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Estado del pedido', style: FD.section(19)),
+          const SizedBox(height: 8),
+          for (var i = 0; i < labels.length; i++)
+            _StepRow(
+              index: i,
+              label: labels[i],
+              done: i < currentStep,
+              active: i == currentStep,
+              last: i == labels.length - 1,
+            ),
         ],
-      ),
-      child: Row(
-        children: List.generate(_labels.length * 2 - 1, (i) {
-          if (i.isOdd) {
-            final filled = (i ~/ 2) < currentStep;
-            return Expanded(
-              child: Container(
-                height: 3,
-                margin: const EdgeInsets.only(bottom: 22),
-                decoration: BoxDecoration(
-                  color: filled
-                      ? const Color(0xFFFFB300)
-                      : const Color(0xFFE0E2E6),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            );
-          }
-          final step = i ~/ 2;
-          final done = step <= currentStep;
-          final active = step == currentStep;
-          return _StepDot(
-            step: step,
-            label: _labels[step],
-            done: done,
-            active: active,
-          );
-        }),
       ),
     );
   }
 }
 
-class _StepDot extends StatelessWidget {
-  final int step;
+class _StepRow extends StatelessWidget {
+  final int index;
   final String label;
   final bool done;
   final bool active;
+  final bool last;
 
-  const _StepDot({
-    required this.step,
+  const _StepRow({
+    required this.index,
     required this.label,
     required this.done,
     required this.active,
+    required this.last,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // El paso actual se destaca con un halo ámbar; los pendientes van en gris.
-        // Alto fijo para que todas las etiquetas queden a la misma altura.
-        SizedBox(
-          height: 50,
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: active ? 50 : 38,
-              height: active ? 50 : 38,
-              padding: EdgeInsets.all(active ? 6 : 3),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFFFFF3CD) : Colors.transparent,
-                shape: BoxShape.circle,
-                border: active
-                    ? Border.all(color: const Color(0xFFFFB300), width: 2)
-                    : null,
-              ),
-              child: OrderStepImage(step: step, size: 38, pending: !done),
+    final reached = done || active;
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Punto numerado y línea que lo une con el siguiente paso.
+          SizedBox(
+            width: 30,
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: active
+                        ? FD.yellow
+                        : done
+                        ? FD.navy
+                        : FD.cream,
+                    shape: BoxShape.circle,
+                    border: active
+                        ? Border.all(color: FD.navy, width: 2)
+                        : null,
+                  ),
+                  alignment: Alignment.center,
+                  child: done
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 16,
+                          color: FD.yellow,
+                        )
+                      : Text(
+                          '${index + 1}',
+                          style: FD.text(
+                            12,
+                            weight: FontWeight.w800,
+                            color: reached ? FD.navy : FD.subtle,
+                          ),
+                        ),
+                ),
+                if (!last)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 2),
+                      color: done ? FD.navy : FD.line,
+                    ),
+                  ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w900 : FontWeight.w400,
-            color: done ? const Color(0xFF1E2025) : const Color(0xFFB0B5BB),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                label,
+                style: FD.text(
+                  15,
+                  weight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: reached ? FD.navy : FD.subtle,
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: OrderStepImage(
+              step: index,
+              size: active ? 34 : 28,
+              pending: !reached,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-// ─── Tracking map ─────────────────────────────────────────────────────────────
+// ─── Mapa ─────────────────────────────────────────────────────────────────────
 
 class _TrackingMap extends StatelessWidget {
   final LatLng? pickupCoord;
@@ -421,35 +489,42 @@ class _TrackingMap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Mapa de seguimiento',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-              ),
-            ),
-            _LegendItem(color: const Color(0xFF16824B), label: 'Comercio'),
-            const SizedBox(width: 12),
-            _LegendItem(color: const Color(0xFFFFB300), label: 'Tu dirección'),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox(
-            height: 220,
-            child: MapTrackingWidget(
-              pickupLocation: pickupCoord,
-              deliveryLocation: deliveryCoord,
-              resolving: resolving,
+    return WhiteCard(
+      padding: const EdgeInsets.all(12),
+      radius: 20,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Mapa de seguimiento', style: FD.section(19)),
+                const SizedBox(height: 4),
+                const Row(
+                  children: [
+                    _LegendItem(color: Color(0xFF16824B), label: 'Comercio'),
+                    SizedBox(width: 12),
+                    _LegendItem(color: FD.yellow, label: 'Tu dirección'),
+                  ],
+                ),
+              ],
             ),
           ),
-        ),
-      ],
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              height: 220,
+              child: MapTrackingWidget(
+                pickupLocation: pickupCoord,
+                deliveryLocation: deliveryCoord,
+                resolving: resolving,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -471,53 +546,52 @@ class _LegendItem extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 11)),
+        Text(label, style: FD.text(11, color: FD.muted)),
       ],
     );
   }
 }
 
-// ─── Info / item widgets ──────────────────────────────────────────────────────
+// ─── Datos y productos ────────────────────────────────────────────────────────
 
-class _InfoCard extends StatelessWidget {
+class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
+  final bool last;
 
-  const _InfoCard({
+  const _InfoRow({
     required this.icon,
     required this.title,
     required this.value,
+    this.last = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EAED)),
+        border: last ? null : const Border(bottom: BorderSide(color: FD.line)),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: const Color(0xFF9EA5AD)),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: FD.soft,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, size: 19, color: FD.navy),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF9EA5AD),
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
+                Text(title, style: FD.text(11.5, color: FD.muted)),
+                Text(value, style: FD.text(14.5, weight: FontWeight.w700)),
               ],
             ),
           ),
@@ -535,34 +609,33 @@ class _ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           Container(
-            width: 30,
-            height: 30,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF1C7),
-              borderRadius: BorderRadius.circular(6),
+              color: FD.soft,
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Center(
-              child: Text(
-                '${item['quantity']}x',
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+            alignment: Alignment.center,
+            child: Text(
+              '${item['quantity']}x',
+              style: FD.text(11.5, weight: FontWeight.w800),
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               '${item['name']}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: FD.text(14.5, weight: FontWeight.w700),
             ),
           ),
-          Text(_clp(item['total'])),
+          Text(
+            _clp(item['total']),
+            style: FD.text(14, weight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -582,10 +655,9 @@ class _TotalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      fontSize: strong ? 18 : 15,
-      fontWeight: strong ? FontWeight.w900 : FontWeight.w500,
-    );
+    final style = strong
+        ? FD.display(19)
+        : FD.text(14.5, color: FD.muted, weight: FontWeight.w600);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [

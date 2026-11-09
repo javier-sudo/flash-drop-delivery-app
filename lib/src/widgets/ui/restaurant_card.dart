@@ -1,153 +1,109 @@
 import 'package:flutter/material.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
-import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/app_image.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/common.dart';
 
-/// Tarjeta grande de restaurante: foto arriba, nombre, rating y datos de envío.
-class RestaurantCard extends StatelessWidget {
+/// Datos de entrega que muestran las tarjetas de comercio.
+String storeEta(RestaurantView r) =>
+    r.deliveryTime != null ? '${r.deliveryTime} min' : '30 min';
+
+String get storeFee => clp(CartController.deliveryFee);
+
+/// Tarjeta grande del carrusel "Comercios cerca de ti".
+class StoreCard extends StatelessWidget {
   final RestaurantView restaurant;
   final VoidCallback onTap;
-  final double imageHeight;
+  final double width;
 
-  const RestaurantCard({
+  const StoreCard({
     super.key,
     required this.restaurant,
     required this.onTap,
-    this.imageHeight = 170,
+    this.width = 270,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      elevation: 0,
-      borderRadius: BorderRadius.circular(24),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.07),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: ColoredBox(
-              color: AppColors.surface,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    height: imageHeight,
-                    width: double.infinity,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        AppImage(
-                          restaurant.image,
-                          fallbackIcon: Icons.storefront,
-                        ),
-                        const Positioned(
-                          top: 12,
-                          left: 12,
-                          child: _Pill('Restaurante'),
-                        ),
-                      ],
+    final r = restaurant;
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 124,
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    AppImage(r.image, fallbackIcon: Icons.storefront),
+                    const Positioned(
+                      top: 10,
+                      left: 10,
+                      child: TagPill('Restaurante'),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                restaurant.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 19,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.ink,
-                                ),
-                              ),
-                            ),
-                            if (restaurant.rating != null)
-                              _RatingPill(restaurant.rating!),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          restaurant.tagline,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 14,
+                        Expanded(
+                          child: Text(
+                            r.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: FD.text(17, weight: FontWeight.w700),
                           ),
                         ),
-                        const Divider(height: 22, color: AppColors.line),
-                        Row(
-                          children: [
-                            if (restaurant.deliveryTime != null) ...[
-                              const Icon(
-                                Icons.schedule,
-                                size: 17,
-                                color: AppColors.primaryDark,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${restaurant.deliveryTime} min',
-                                style: const TextStyle(
-                                  color: AppColors.primaryDark,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(width: 18),
-                            ],
-                            const Icon(
-                              Icons.delivery_dining,
-                              size: 19,
-                              color: AppColors.ink,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              clp(CartController.deliveryFee),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                '${restaurant.products.length} productos',
-                                textAlign: TextAlign.end,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ],
+                        if (r.rating != null) _Rating(r.rating!),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      r.tagline,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: FD.text(13, color: FD.muted),
+                    ),
+                    const SizedBox(height: 10),
+                    const Divider(height: 1, color: FD.line),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.timer_outlined,
+                          size: 15,
+                          color: FD.navy,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '${storeEta(r)}   ·   Envío $storeFee',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: FD.text(12.5, weight: FontWeight.w600),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -155,49 +111,76 @@ class RestaurantCard extends StatelessWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
-  final String text;
-  const _Pill(this.text);
+/// Fila compacta de comercio (lista filtrada y resultados de búsqueda).
+class StoreRow extends StatelessWidget {
+  final RestaurantView restaurant;
+  final VoidCallback onTap;
+  final double imageSize;
+
+  const StoreRow({
+    super.key,
+    required this.restaurant,
+    required this.onTap,
+    this.imageSize = 64,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+    final r = restaurant;
+    return WhiteCard(
+      margin: const EdgeInsets.only(bottom: 10),
+      onTap: onTap,
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox.square(
+              dimension: imageSize,
+              child: AppImage(r.image, fallbackIcon: Icons.storefront),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(r.name, style: FD.text(15, weight: FontWeight.w700)),
+                Text(
+                  [
+                    'Restaurante',
+                    if (r.rating != null) '★ ${r.rating!.toStringAsFixed(1)}',
+                  ].join(' · '),
+                  style: FD.text(12, color: FD.muted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${storeEta(r)} · Envío $storeFee',
+                  style: FD.text(12, weight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: FD.navy),
+        ],
       ),
     );
   }
 }
 
-class _RatingPill extends StatelessWidget {
-  final double rating;
-  const _RatingPill(this.rating);
+class _Rating extends StatelessWidget {
+  final double value;
+  const _Rating(this.value);
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(999),
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Icon(Icons.star_rounded, size: 15, color: Color(0xFFFFB800)),
+      const SizedBox(width: 2),
+      Text(
+        value.toStringAsFixed(1),
+        style: FD.text(13, weight: FontWeight.w700),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.star_rounded, size: 17, color: AppColors.star),
-          const SizedBox(width: 3),
-          Text(
-            rating.toStringAsFixed(1),
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-    );
-  }
+    ],
+  );
 }
