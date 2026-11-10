@@ -1,27 +1,40 @@
+// lib/src/widgets/map_tracking_osm.dart
+//
+// Mapa de seguimiento de un pedido con OpenStreetMap (flutter_map).
+// Recibe las coordenadas ya geocodificadas del local y de la entrega; mientras
+// no lleguen muestra Santiago centro. Con ambos puntos pide el recorrido por
+// calles a OSRM y, si no responde, dibuja la línea recta como estimación.
+//
+// Atribución obligatoria "OpenStreetMap contributors" (licencia ODbL): la
+// incluye el RichAttributionWidget, no la quites.
+
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 class MapTrackingWidget extends StatefulWidget {
-  final String pickupAddress;
-  final String deliveryAddress;
-  final LatLng? pickupCoordinates;
-  final LatLng? deliveryCoordinates;
-  final bool showCurrentLocation;
+  final LatLng? pickupLocation;
+  final LatLng? deliveryLocation;
+  final LatLng? currentLocation;
+
+  /// true mientras la pantalla aún geocodifica las direcciones.
+  final bool resolving;
+
+  /// Permite reemplazar OSRM (tests o sin red). Devuelve [] si no hay ruta.
+  final Future<List<LatLng>> Function(LatLng from, LatLng to)? routeLoader;
 
   const MapTrackingWidget({
     super.key,
-    required this.pickupAddress,
-    required this.deliveryAddress,
-    this.pickupCoordinates,
-    this.deliveryCoordinates,
-    this.showCurrentLocation = false,
+    this.pickupLocation,
+    this.deliveryLocation,
+    this.currentLocation,
+    this.resolving = false,
+    this.routeLoader,
   });
 
   @override
@@ -29,213 +42,154 @@ class MapTrackingWidget extends StatefulWidget {
 }
 
 class _MapTrackingWidgetState extends State<MapTrackingWidget> {
-  LatLng? _pickup;
-  LatLng? _delivery;
-  LatLng? _currentLocation;
+  static const LatLng _santiago = LatLng(-33.4372, -70.6506);
+
   List<LatLng> _route = const [];
-  bool _loading = true;
-  String? _message;
+  bool _loadingRoute = false;
+  bool _routeFailed = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_resolveMap());
+    unawaited(_loadRoute());
   }
 
   @override
   void didUpdateWidget(covariant MapTrackingWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pickupAddress != widget.pickupAddress ||
-        oldWidget.deliveryAddress != widget.deliveryAddress ||
-        oldWidget.pickupCoordinates != widget.pickupCoordinates ||
-        oldWidget.deliveryCoordinates != widget.deliveryCoordinates ||
-        oldWidget.showCurrentLocation != widget.showCurrentLocation) {
-      unawaited(_resolveMap());
+    if (oldWidget.pickupLocation != widget.pickupLocation ||
+        oldWidget.deliveryLocation != widget.deliveryLocation) {
+      unawaited(_loadRoute());
     }
   }
 
-  Future<void> _resolveMap() async {
-    if (mounted) {
-      setState(() {
-        _loading = true;
-        _message = null;
-      });
+  Future<void> _loadRoute() async {
+    final from = widget.pickupLocation;
+    final to = widget.deliveryLocation;
+    if (from == null || to == null) {
+      if (mounted) setState(() => _route = const []);
+      return;
     }
-    final locations = await Future.wait([
-      widget.pickupCoordinates == null
-          ? _geocode(widget.pickupAddress)
-          : Future.value(widget.pickupCoordinates),
-      widget.deliveryCoordinates == null
-          ? _geocode(widget.deliveryAddress)
-          : Future.value(widget.deliveryCoordinates),
-      if (widget.showCurrentLocation) _getCurrentLocation(),
-    ]);
-    final pickup = widget.pickupCoordinates ?? locations[0];
-    final delivery = widget.deliveryCoordinates ?? locations[1];
-    final current = widget.showCurrentLocation && locations.length > 2
-        ? locations[2]
-        : null;
-    final route = pickup != null && delivery != null
-        ? await _getRoadRoute(pickup, delivery)
-        : const <LatLng>[];
-
-    if (!mounted) return;
     setState(() {
-      _pickup = pickup;
-      _delivery = delivery;
-      _currentLocation = current;
+      _loadingRoute = true;
+      _routeFailed = false;
+    });
+    final loader = widget.routeLoader ?? roadRoute;
+    final route = await loader(from, to);
+    // Si cambiaron los puntos mientras tanto, esta respuesta ya no sirve.
+    if (!mounted ||
+        from != widget.pickupLocation ||
+        to != widget.deliveryLocation) {
+      return;
+    }
+    setState(() {
       _route = route;
-      _loading = false;
-      if (pickup == null || delivery == null) {
-        _message = 'No pudimos ubicar una de las direcciones en el mapa.';
-      } else if (route.isEmpty) {
-        _message = 'Mostrando recorrido estimado.';
-      }
+      _loadingRoute = false;
+      _routeFailed = route.isEmpty;
     });
   }
 
-  Future<LatLng?> _geocode(String address) async {
-    return RegisteredAddressResolver.resolve(address);
-  }
-
-  Future<LatLng?> _getCurrentLocation() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) return null;
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return null;
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 8),
-        ),
-      );
-      return LatLng(position.latitude, position.longitude);
-    } catch (_) {
-      return null;
+  String? get _message {
+    if (widget.resolving) return null;
+    if (widget.pickupLocation == null || widget.deliveryLocation == null) {
+      return 'No pudimos ubicar una de las direcciones en el mapa.';
     }
-  }
-
-  Future<List<LatLng>> _getRoadRoute(LatLng from, LatLng to) async {
-    try {
-      final path =
-          '/route/v1/driving/'
-          '${from.longitude},${from.latitude};${to.longitude},${to.latitude}';
-      final uri = Uri.https('router.project-osrm.org', path, const {
-        'overview': 'full',
-        'geometries': 'geojson',
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      final body = jsonDecode(response.body);
-      final routes = body is Map ? body['routes'] : null;
-      final geometry = routes is List && routes.isNotEmpty
-          ? routes.first['geometry']
-          : null;
-      final coordinates = geometry is Map ? geometry['coordinates'] : null;
-      if (coordinates is! List) return const [];
-      return coordinates
-          .whereType<List>()
-          .where((point) => point.length >= 2)
-          .map(
-            (point) => LatLng(
-              (point[1] as num).toDouble(),
-              (point[0] as num).toDouble(),
-            ),
-          )
-          .toList();
-    } catch (_) {
-      return const [];
-    }
+    if (_routeFailed) return 'Mostrando recorrido estimado.';
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final endpoints = <LatLng>[
-      if (_pickup != null) _pickup!,
-      if (_delivery != null) _delivery!,
-      if (_currentLocation != null) _currentLocation!,
-    ];
-    final routePoints = _route.isNotEmpty ? _route : endpoints.take(2).toList();
-    final initialCenter = endpoints.isNotEmpty
-        ? endpoints.first
-        : const LatLng(-33.4489, -70.6693);
+    final points = [?widget.pickupLocation, ?widget.deliveryLocation];
+    final camera = [...points, ?widget.currentLocation];
+    final line = _route.isNotEmpty ? _route : points;
+    final message = _message;
 
     return Stack(
       children: [
         FlutterMap(
+          // La key fuerza a recalcular la cámara cuando llegan las coordenadas.
           key: ValueKey(
-            '${widget.pickupAddress}:${widget.deliveryAddress}:$_currentLocation',
+            camera.map((p) => '${p.latitude},${p.longitude}').join('|'),
           ),
           options: MapOptions(
-            initialCenter: initialCenter,
-            initialZoom: endpoints.length <= 1 ? 13 : 12,
-            initialCameraFit: endpoints.length > 1
+            initialCenter: camera.isEmpty ? _santiago : camera.first,
+            initialZoom: 13,
+            initialCameraFit: camera.length > 1
                 ? CameraFit.bounds(
-                    bounds: LatLngBounds.fromPoints(endpoints),
+                    bounds: LatLngBounds.fromPoints(camera),
                     padding: const EdgeInsets.all(40),
                   )
                 : null,
           ),
           children: [
             TileLayer(
+              // OpenStreetMap público. userAgentPackageName es OBLIGATORIO por
+              // la política de uso de tiles OSM.
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.javier.proyecto_app_delivery_gessof',
               maxNativeZoom: 19,
             ),
-            if (routePoints.length > 1)
+            if (line.length > 1)
               PolylineLayer(
                 polylines: [
                   Polyline(
-                    points: routePoints,
+                    points: line,
                     strokeWidth: 5,
-                    color: const Color(0xFF0C9AF8),
+                    color: const Color(0xFF1769C2),
                     borderStrokeWidth: 2,
                     borderColor: Colors.white.withValues(alpha: 0.8),
+                    // Punteada mientras sea solo la estimación en línea recta.
+                    pattern: _route.isEmpty
+                        ? StrokePattern.dashed(segments: const [10, 8])
+                        : const StrokePattern.solid(),
                   ),
                 ],
               ),
             MarkerLayer(
               markers: [
-                if (_pickup != null)
-                  _marker(
-                    _pickup!,
-                    color: const Color(0xFF16824B),
-                    icon: Icons.storefront,
+                if (widget.pickupLocation != null)
+                  Marker(
+                    point: widget.pickupLocation!,
+                    width: 44,
+                    height: 48,
+                    alignment: Alignment.topCenter,
+                    child: const MapPin(MapPinKind.store, size: 44),
                   ),
-                if (_delivery != null)
-                  _marker(
-                    _delivery!,
-                    color: const Color(0xFF0C9AF8),
-                    icon: Icons.location_on,
+                if (widget.deliveryLocation != null)
+                  Marker(
+                    point: widget.deliveryLocation!,
+                    width: 44,
+                    height: 48,
+                    alignment: Alignment.topCenter,
+                    child: const MapPin(MapPinKind.home, size: 44),
                   ),
-                if (_currentLocation != null)
-                  _marker(
-                    _currentLocation!,
-                    color: const Color(0xFF171A1F),
-                    icon: Icons.delivery_dining,
+                if (widget.currentLocation != null)
+                  Marker(
+                    point: widget.currentLocation!,
+                    width: 48,
+                    height: 52,
+                    alignment: Alignment.topCenter,
+                    child: const MapPin(MapPinKind.rider, size: 48),
                   ),
               ],
             ),
+            // Atribución OBLIGATORIA por la licencia ODbL de OpenStreetMap.
             const RichAttributionWidget(
               attributions: [
-                TextSourceAttribution('© OpenStreetMap contributors'),
+                TextSourceAttribution('OpenStreetMap contributors'),
               ],
             ),
           ],
         ),
-        if (_loading)
+        if (widget.resolving || _loadingRoute)
           const Positioned(
             left: 0,
             right: 0,
             top: 0,
             child: LinearProgressIndicator(minHeight: 3),
           ),
-        if (_message != null)
+        if (message != null)
           Positioned(
             left: 10,
             right: 10,
@@ -248,7 +202,7 @@ class _MapTrackingWidgetState extends State<MapTrackingWidget> {
               child: Padding(
                 padding: const EdgeInsets.all(8),
                 child: Text(
-                  _message!,
+                  message,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 11),
                 ),
@@ -258,21 +212,45 @@ class _MapTrackingWidgetState extends State<MapTrackingWidget> {
       ],
     );
   }
+}
 
-  Marker _marker(LatLng point, {required Color color, required IconData icon}) {
-    return Marker(
-      point: point,
-      width: 44,
-      height: 44,
-      child: Container(
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
-        ),
-        child: Icon(icon, color: Colors.white, size: 22),
-      ),
+/// Recorrido en auto entre dos puntos según OSRM. [] si falla o no hay ruta.
+Future<List<LatLng>> roadRoute(
+  LatLng from,
+  LatLng to, {
+  http.Client? client,
+}) async {
+  final httpClient = client ?? http.Client();
+  try {
+    final uri = Uri.https(
+      'router.project-osrm.org',
+      '/route/v1/driving/'
+          '${from.longitude},${from.latitude};${to.longitude},${to.latitude}',
+      const {'overview': 'full', 'geometries': 'geojson'},
     );
+    final response = await httpClient
+        .get(uri)
+        .timeout(const Duration(seconds: 8));
+    if (response.statusCode != 200) return const [];
+    return parseOsrmRoute(jsonDecode(response.body));
+  } catch (e) {
+    debugPrint('OSRM no respondió: $e');
+    return const [];
+  } finally {
+    if (client == null) httpClient.close();
   }
+}
+
+/// Extrae la geometría GeoJSON ([lng, lat]) de la primera ruta de OSRM.
+List<LatLng> parseOsrmRoute(Object? body) {
+  final routes = body is Map ? body['routes'] : null;
+  final first = routes is List && routes.isNotEmpty ? routes.first : null;
+  final geometry = first is Map ? first['geometry'] : null;
+  final coordinates = geometry is Map ? geometry['coordinates'] : null;
+  if (coordinates is! List) return const [];
+  return coordinates
+      .whereType<List>()
+      .where((p) => p.length >= 2 && p[0] is num && p[1] is num)
+      .map((p) => LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble()))
+      .toList();
 }

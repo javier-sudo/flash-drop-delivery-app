@@ -9,7 +9,7 @@ void main() {
   ) async {
     final response =
         jsonDecode(
-      '{"success":true,"data":{"receptionMode":"SEGURO","deliveryCode":"012345"}}',
+              '{"success":true,"data":{"receptionMode":"SEGURO","deliveryCode":"012345"}}',
             )
             as Map<String, dynamic>;
     await tester.pumpWidget(

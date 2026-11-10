@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:proyecto_app_delivery_gessof/src/data/demo_data.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
 
 class LoginController extends GetxController {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
+  // Las credenciales demo solo se precargan en modo prototipo.
+  final emailController = TextEditingController(
+    text: Environment.useDemoMode ? 'demo@flashdrop.cl' : '',
+  );
+  final passwordController = TextEditingController(
+    text: Environment.useDemoMode ? '123456' : '',
+  );
 
   final isLoading = false.obs;
   final UsersProvider usersProvider = UsersProvider();
@@ -62,6 +69,23 @@ class LoginController extends GetxController {
     try {
       isLoading.value = true;
 
+      if (Environment.useDemoMode) {
+        await Future.delayed(const Duration(milliseconds: 550));
+        final demoUser = DemoData.user(email: email)..remove('session_token');
+        await SessionManager.instance.saveAuthenticatedSession({
+          ...demoUser,
+          'accessToken': 'demo-access-token',
+          'refreshToken': 'demo-refresh-token',
+        });
+        Get.snackbar(
+          'Modo prototipo',
+          'Sesion iniciada con datos demo',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        goToRolesPage();
+        return;
+      }
+
       final ResponseApi resp = await usersProvider.login(
         login: email,
         password: password,
@@ -79,7 +103,8 @@ class LoginController extends GetxController {
           snackPosition: SnackPosition.BOTTOM,
         );
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Login fallido: $e');
       Get.snackbar(
         'Error',
         'No se pudo iniciar la sesión. Intenta nuevamente.',

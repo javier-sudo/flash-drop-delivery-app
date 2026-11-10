@@ -1,44 +1,89 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 
+/// Código de entrega (PIN de 6 dígitos) que el cliente comparte con el
+/// repartidor al recibir el pedido. Lo entrega Orders en `deliveryCode` solo a
+/// la cuenta que creó el pedido.
 class DeliveryCodePanel extends StatelessWidget {
   const DeliveryCodePanel({super.key, required this.order});
 
   final Map<String, dynamic> order;
 
-  @override
-  Widget build(BuildContext context) {
+  static String? codeOf(Map<String, dynamic> order) {
     final value = order['deliveryCode'] ?? order['delivery_code'];
     final pin = value is String ? value.trim() : '';
-    final available = RegExp(r'^\d{6}$').hasMatch(pin);
+    return RegExp(r'^\d{6}$').hasMatch(pin) ? pin : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pin = codeOf(order);
     final mode = '${order['receptionMode'] ?? order['reception_mode'] ?? ''}'
         .trim()
         .toUpperCase();
+    final available = pin != null;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: available ? const Color(0xFFEEF3FF) : const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(8),
+        color: available ? FD.navy : FD.soft,
+        borderRadius: BorderRadius.circular(18),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          const Text(
-            'Código de entrega',
-            style: TextStyle(fontWeight: FontWeight.bold),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: FD.yellow,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.lock_outline, color: FD.navy),
           ),
-          const SizedBox(height: 6),
-          if (available) ...[
-            Text(
-              pin,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Código de entrega',
+                  style: FD.text(
+                    13.5,
+                    weight: FontWeight.w800,
+                    color: available ? const Color(0xFFDFE3EC) : FD.brown,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                if (available) ...[
+                  // Espaciado amplio para dictarlo sin errores.
+                  Text(
+                    pin,
+                    style: const TextStyle(
+                      fontFamily: FD.font,
+                      fontSize: 30,
+                      letterSpacing: 6,
+                      fontWeight: FontWeight.w900,
+                      color: FD.yellow,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const Text(
+                    'Compártelo solo al recibir tu pedido.',
+                    style: TextStyle(
+                      fontFamily: FD.font,
+                      color: Color(0xFFDFE3EC),
+                      fontSize: 12,
+                    ),
+                  ),
+                ] else
+                  Text(
+                    mode == 'NORMAL'
+                        ? 'Este pedido anterior no tiene código de entrega.'
+                        : 'Código no disponible. Actualiza el pedido con la cuenta que lo creó.',
+                    style: FD.text(13, color: FD.brown),
+                  ),
+              ],
             ),
-            const Text('Compártelo solo al recibir tu pedido.'),
-          ] else
-            Text(
-              mode == 'NORMAL'
-                  ? 'Este pedido anterior no tiene código de entrega.'
-                  : 'Código no disponible. Actualiza el pedido con la cuenta que lo creó.',
-            ),
+          ),
         ],
       ),
     );

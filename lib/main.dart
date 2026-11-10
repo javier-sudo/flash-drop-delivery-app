@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:workmanager/workmanager.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/products/list/client_products_list_page.dart';
-import 'package:proyecto_app_delivery_gessof/src/pages/delivery/orders/list/delivery_orders_list_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/delivery/home/delivery_home_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/login/login_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/register/register_page.dart';
@@ -12,18 +11,25 @@ import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/orders/list/re
 import 'package:proyecto_app_delivery_gessof/src/pages/client/address/address_selector_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/tracking/client_order_tracking_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/roles/roles_page.dart';
-import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
-import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
-import 'package:proyecto_app_delivery_gessof/src/services/connection_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/background_order_sync_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/connection_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
+import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
+import 'package:proyecto_app_delivery_gessof/src/widgets/connection_banner.dart';
+import 'package:workmanager/workmanager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
   await LocalNotificationsService.instance.initialize();
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    await Workmanager().initialize(backgroundOrderSyncDispatcher);
-    await BackgroundOrderSyncService.register();
+    try {
+      await Workmanager().initialize(backgroundOrderSyncDispatcher);
+      await BackgroundOrderSyncService.register();
+    } catch (e) {
+      debugPrint('No se pudo programar la sincronización en segundo plano: $e');
+    }
   }
   final hasSession = await SessionManager.instance.restoreSession();
   runApp(MyApp(initialRoute: hasSession ? '/roles' : '/'));
@@ -71,12 +77,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     return GetMaterialApp(
       title: 'Flash Drop Delivery',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFFB300)),
-        scaffoldBackgroundColor: const Color(0xFFF7F7F7),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
       initialRoute: widget.initialRoute,
+      // El aviso "Sin conexión" queda sobre cualquier pantalla.
+      builder: (context, child) => Stack(
+        children: [child ?? const SizedBox.shrink(), const ConnectionBanner()],
+      ),
       getPages: [
         GetPage(name: '/', page: () => LoginPage()),
         GetPage(name: '/register', page: () => RegisterPage()),
@@ -92,7 +98,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ),
         GetPage(
           name: '/delivery/orders/list',
-          page: () => DeliveryOrdersListPage(),
+          page: () => const DeliveryHomePage(),
         ),
         GetPage(
           name: '/client/orders/tracking',

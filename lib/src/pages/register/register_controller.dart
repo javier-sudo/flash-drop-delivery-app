@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:proyecto_app_delivery_gessof/src/data/demo_data.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/login/login_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
@@ -47,6 +49,16 @@ class RegisterController extends GetxController {
     try {
       isLoading.value = true;
 
+      if (Environment.useDemoMode) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        final demoUser = DemoData.user(name: name, email: email, phone: phone);
+        demoUser['lastName'] = lastname;
+        demoUser['rut'] = rut.isEmpty ? '12.345.678-9' : rut;
+        await SessionManager.instance.clearSession();
+        _goBackToLogin(email, 'Perfil demo creado. Ahora inicia sesion.');
+        return;
+      }
+
       final registerResp = await usersProvider.registerWithImage(
         email: email,
         rut: rut.isEmpty ? null : rut,
@@ -70,7 +82,8 @@ class RegisterController extends GetxController {
         );
       }
     } catch (e) {
-      Get.snackbar('Error', 'No se pudo conectar al backend: $e');
+      debugPrint('Registro fallido: $e');
+      Get.snackbar('Error', 'No se pudo crear la cuenta. Intenta nuevamente.');
     } finally {
       isLoading.value = false;
     }
