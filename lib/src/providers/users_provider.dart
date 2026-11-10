@@ -8,7 +8,23 @@ import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/connection_service.dart';
 
 class UsersProvider {
+  /// [client] permite inyectar un cliente HTTP (tests); por defecto se usa
+  /// el del paquete `http`.
+  UsersProvider({http.Client? client}) : _client = client;
+
   final String _base = Environment.apiUrl;
+  final http.Client? _client;
+
+  Future<http.Response> _post(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    final client = _client;
+    return client != null
+        ? client.post(uri, headers: headers, body: body)
+        : http.post(uri, headers: headers, body: body);
+  }
 
   Future<http.Response> _send(Future<http.Response> request) async {
     try {
@@ -31,7 +47,7 @@ class UsersProvider {
   }) async {
     final uri = Uri.parse('$_base/auth/login');
     final res = await _send(
-      http.post(
+      _post(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'login': login, 'password': password}),
@@ -44,7 +60,7 @@ class UsersProvider {
   Future<SessionRefreshResult> refreshSession(String refreshToken) async {
     try {
       final response = await _send(
-        http.post(
+        _post(
           Uri.parse('$_base/auth/refresh'),
           headers: const {'Content-Type': 'application/json'},
           body: jsonEncode({'refreshToken': refreshToken}),
@@ -87,7 +103,7 @@ class UsersProvider {
     File? image, // opcional
   }) async {
     final res = await _send(
-      http.post(
+      _post(
         Uri.parse('$_base/auth/register'),
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -101,6 +117,31 @@ class UsersProvider {
       ),
     );
     return _fromResponse(res);
+  }
+
+  /// Pide el correo de recuperación (`POST /auth/password/forgot`).
+  ///
+  /// Auth responde 202 sin cuerpo exista o no el correo, así que la app no
+  /// puede ni debe distinguir esos casos: solo informa que se procesó.
+  Future<PasswordResetRequestResult> requestPasswordReset(String email) async {
+    try {
+      final res = await _send(
+        _post(
+          Uri.parse('$_base/auth/password/forgot'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email}),
+        ),
+      );
+      final code = res.statusCode;
+      if (code >= 200 && code < 300) return PasswordResetRequestResult.sent;
+      if (code == 400 || code == 422) {
+        return PasswordResetRequestResult.invalidEmail;
+      }
+      if (code == 429) return PasswordResetRequestResult.tooManyRequests;
+      return PasswordResetRequestResult.serverError;
+    } catch (_) {
+      return PasswordResetRequestResult.network;
+    }
   }
 
   // si luego quieres actualizar solo la foto:
@@ -190,4 +231,22 @@ class SessionRefreshResult {
 
   /// 401/403: el refresh token ya no sirve y hay que volver a iniciar sesión.
   bool get isInvalid => statusCode == 401 || statusCode == 403;
+}
+
+/// Resultado de pedir el correo de recuperación de contraseña.
+enum PasswordResetRequestResult {
+  /// Auth aceptó la solicitud (no indica si el correo existe).
+  sent,
+
+  /// El backend rechazó el formato del correo.
+  invalidEmail,
+
+  /// Límite de solicitudes por IP o por correo (HTTP 429).
+  tooManyRequests,
+
+  /// Error del servidor o respuesta inesperada.
+  serverError,
+
+  /// Sin respuesta: timeout o sin conexión.
+  network,
 }
