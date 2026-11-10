@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/products/list/client_products_list_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/delivery/home/delivery_home_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/forgot_password/forgot_password_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/login/login_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/register/register_page.dart';
@@ -86,6 +87,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       getPages: [
         GetPage(name: '/', page: () => LoginPage()),
         GetPage(name: '/register', page: () => RegisterPage()),
+        GetPage(name: '/forgot-password', page: () => ForgotPasswordPage()),
         GetPage(name: '/home', page: () => HomePage()),
         GetPage(name: '/roles', page: () => RolesPage()),
         GetPage(

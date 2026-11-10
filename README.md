@@ -14,6 +14,11 @@ Aplicacion Flutter multirol para un prototipo de delivery tipo Uber Eats.
   cliente (3 intentos; al tercero el codigo se renueva).
 - Sesion: tokens en almacenamiento seguro con renovacion automatica
   (`/auth/refresh`); al cerrar sesion se borran rol, direccion y ruta activa.
+- Recuperar contrasena: "¿Olvidaste tu contraseña?" en el login abre
+  `/forgot-password`, que pide el correo a `POST /auth/password/forgot`. Auth
+  responde 202 exista o no el correo y envia un enlace que abre la pagina
+  `/recuperar-clave` de la web (vence en 30 min). Reenvio cada 60 s; avisos
+  para 429 (demasiadas solicitudes) y sin conexion. En modo demo se simula.
 - Red: timeout de 15 s por llamada y banner "Sin conexion. Reintentando...".
 - Notificaciones locales de cambios de estado y sincronizacion en segundo plano
   cada 15 min (solo Android).
