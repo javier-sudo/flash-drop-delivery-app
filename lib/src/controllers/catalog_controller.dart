@@ -1,4 +1,6 @@
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:proyecto_app_delivery_gessof/src/models/delivery_destination.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 
@@ -13,6 +15,7 @@ class RestaurantView {
   final String? description;
   final double? rating;
   final int? deliveryTime;
+  final double? deliveryRadiusKm;
   final List<Map<String, dynamic>> products;
 
   RestaurantView({
@@ -24,6 +27,7 @@ class RestaurantView {
     this.description,
     this.rating,
     this.deliveryTime,
+    this.deliveryRadiusKm,
   });
 
   /// Categorías en el orden en que aparecen sus productos.
@@ -56,27 +60,67 @@ class CatalogController extends GetxController {
   final products = <Map<String, dynamic>>[].obs;
   final loading = true.obs;
   final error = RxnString();
+  final needsAddress = true.obs;
+  final _storage = GetStorage();
+  int _loadRevision = 0;
+  void Function()? _stopAddressListener;
 
   @override
   void onInit() {
     super.onInit();
+    _stopAddressListener = _storage.listenKey(
+      'delivery_address',
+      (_) => load(),
+    );
     load();
   }
 
+  @override
+  void onClose() {
+    _loadRevision++;
+    _stopAddressListener?.call();
+    super.onClose();
+  }
+
   Future<void> load() async {
+    final revision = ++_loadRevision;
     loading.value = true;
     error.value = null;
+    // Clear immediately so a previous address never leaks into the next listing.
+    restaurants.clear();
+    products.clear();
+    final destination = DeliveryDestination.fromStorage(
+      _storage.read('delivery_address'),
+    );
+    needsAddress.value = destination == null;
+    if (destination == null) {
+      loading.value = false;
+      return;
+    }
     try {
       final results = await Future.wait([
         _provider.getProducts(),
-        _provider.getRestaurants(),
+        _provider.getCoveredRestaurants(
+          latitude: destination.latitude,
+          longitude: destination.longitude,
+        ),
       ]);
-      products.assignAll(results[0]);
-      restaurants.assignAll(buildRestaurants(results[1], results[0]));
+      if (revision != _loadRevision) return;
+      final allowed = results[1]
+          .map((r) => toInt(r['id']))
+          .whereType<int>()
+          .toSet();
+      final coveredProducts = results[0]
+          .where((p) => allowed.contains(toInt(p['restaurantId'])))
+          .toList();
+      products.assignAll(coveredProducts);
+      restaurants.assignAll(buildRestaurants(results[1], coveredProducts));
     } catch (_) {
-      error.value = 'No se pudo conectar con el backend';
+      if (revision == _loadRevision) {
+        error.value = 'No se pudo consultar la cobertura';
+      }
     } finally {
-      loading.value = false;
+      if (revision == _loadRevision) loading.value = false;
     }
   }
 
@@ -107,6 +151,7 @@ class CatalogController extends GetxController {
             description: _nonEmpty(r['description']),
             rating: r['rating'] == null ? null : toDouble(r['rating']),
             deliveryTime: toInt(r['deliveryTime']),
+            deliveryRadiusKm: double.tryParse('${r['deliveryRadiusKm']}'),
             products: items,
           );
         })
