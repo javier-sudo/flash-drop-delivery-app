@@ -56,9 +56,8 @@ class _ClientOrdersListWidgetState extends State<ClientOrdersListWidget> {
     try {
       final data = await _appProvider.getOrders(view: 'client');
       // Solo avisa en las recargas automáticas, no al abrir la pantalla.
-      await LocalNotificationsService.instance.observeOrders(
-        scope: 'client',
-        orders: data,
+      await LocalNotificationsService.instance.observeClient(
+        data,
         notify: silent,
       );
       data.sort((a, b) => orderTime(b).compareTo(orderTime(a)));

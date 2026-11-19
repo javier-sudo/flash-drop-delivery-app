@@ -63,10 +63,10 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
     }
     try {
       final detail = await _appProvider.getOrderDetail(_orderId);
-      await LocalNotificationsService.instance.observeOrders(
-        scope: 'client',
-        orders: [detail],
+      await LocalNotificationsService.instance.observeClient(
+        [detail],
         notify: silent,
+        partial: true,
       );
       if (!mounted) return;
       setState(() {

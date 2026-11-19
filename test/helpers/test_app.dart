@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/notifications/notice_store.dart';
 import 'package:proyecto_app_delivery_gessof/src/data/demo_backend.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
@@ -87,6 +88,8 @@ Future<void> initTestStorage() async {
   await GetStorage.init();
   // Tokens y PIN viven en almacenamiento seguro: en tests, en memoria.
   FlutterSecureStorage.setMockInitialValues({});
+  // Estado de avisos compartido entre isolates: en tests, en memoria.
+  NoticeStore.instance = MemoryNoticeStore();
 }
 
 /// Monta una página en un teléfono de 1080x2400 y espera la latencia demo.

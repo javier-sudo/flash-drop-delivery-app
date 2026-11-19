@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
@@ -35,6 +36,9 @@ class SessionManager {
   Future<String?>? _refreshing;
 
   UsersProvider get _users => _usersProvider ??= UsersProvider();
+
+  @visibleForTesting
+  set usersProvider(UsersProvider? provider) => _usersProvider = provider;
 
   Future<bool> restoreSession() async {
     final rawUser = _storage.read('user');
@@ -159,7 +163,16 @@ class SessionManager {
       );
       return result.accessToken;
     }
-    if (result.isInvalid) await clearSession();
+    if (result.isInvalid) {
+      // La app, el servicio en primer plano y el sondeo de segundo plano
+      // comparten los tokens. Si otro renovó primero, este refresh token ya
+      // fue rotado: se usa el nuevo en vez de cerrar la sesión.
+      final current = await _secureStorage.read(key: _refreshTokenKey);
+      if (current != null && current.isNotEmpty && current != refreshToken) {
+        return _secureStorage.read(key: _accessTokenKey);
+      }
+      await clearSession();
+    }
     return null;
   }
 

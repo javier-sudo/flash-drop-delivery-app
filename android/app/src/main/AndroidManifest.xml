@@ -6,6 +6,12 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Android 13+: avisos locales de cambios de estado de pedidos. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- F9: servicio en primer plano mientras el repartidor está disponible o
+         el local recibe pedidos. specialUse no tiene el límite de 6 h diarias
+         de dataSync (Android 15); exige justificarlo en Play Console. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:label="Flash Drop FloCI"
@@ -37,6 +43,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- No cambiar el nombre: lo exige flutter_foreground_task. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Avisos en tiempo real de pedidos de delivery mientras el repartidor está disponible o el local recibe pedidos" />
+        </service>
     </application>
 
     <queries>
