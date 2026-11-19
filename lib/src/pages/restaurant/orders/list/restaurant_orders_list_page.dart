@@ -7,6 +7,7 @@ import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/store_delivery_coverage_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
@@ -234,6 +235,11 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
         backgroundColor: AppColors.background,
         title: const Text('Pedidos del local'),
         actions: [
+          IconButton(
+            tooltip: 'Zona de despacho',
+            onPressed: () => Get.to(() => const StoreDeliveryCoveragePage()),
+            icon: const Icon(Icons.radar),
+          ),
           IconButton(
             tooltip: 'Actualizar pedidos',
             onPressed: _loadOrders,

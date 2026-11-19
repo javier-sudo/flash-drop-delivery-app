@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
+import 'package:proyecto_app_delivery_gessof/src/models/delivery_destination.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/address/address_selector_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/home/client_shell_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
@@ -81,6 +82,7 @@ class _CartPageState extends State<CartPage> {
   }
 
   Future<void> _pickAddress() async {
+    if (_placing) return;
     await Get.to(() => const AddressSelectorPage());
     if (!mounted) return;
     setState(() {
@@ -90,7 +92,19 @@ class _CartPageState extends State<CartPage> {
   }
 
   Future<void> _placeOrder() async {
+    if (_placing || _cart.lines.isEmpty) return;
     final address = _addressController.text.trim();
+    final destination = DeliveryDestination.fromStorage(
+      _box.read('delivery_address'),
+    );
+    if (destination == null || destination.address != address) {
+      Get.snackbar(
+        'Selecciona tu direccion',
+        'Confirma el pin y la comuna en el mapa.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
     if (address.length < 6) {
       Get.snackbar(
         'Dirección incompleta',
@@ -100,11 +114,36 @@ class _CartPageState extends State<CartPage> {
       return;
     }
     setState(() => _placing = true);
+    await _catalog.load();
+    if (!mounted) return;
     final restaurant = _catalog.restaurantById(_cart.restaurantId ?? -1);
-    final estimate = await _estimateRoute(
-      restaurant?.address ?? restaurant?.name ?? '',
-      address,
+    final currentDestination = DeliveryDestination.fromStorage(
+      _box.read('delivery_address'),
     );
+    if (_catalog.error.value != null ||
+        restaurant == null ||
+        currentDestination != destination) {
+      setState(() => _placing = false);
+      Get.snackbar(
+        'No se puede confirmar',
+        _catalog.error.value ??
+            'El comercio no entrega en esta direccion. Cambia la direccion o el comercio.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+    final estimate = await _estimateRoute(restaurant.address, address);
+    if (!mounted) return;
+    if (DeliveryDestination.fromStorage(_box.read('delivery_address')) !=
+        destination) {
+      setState(() => _placing = false);
+      Get.snackbar(
+        'La dirección cambió',
+        'Revisa la cobertura antes de confirmar nuevamente.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
     final ResponseApi response;
     try {
       response = await _api.createOrder(
@@ -114,6 +153,9 @@ class _CartPageState extends State<CartPage> {
         receptionMode: _receptionMode,
         distanceKm: estimate.$1,
         estimatedMinutes: estimate.$2,
+        latitude: destination.latitude,
+        longitude: destination.longitude,
+        commune: destination.commune,
       );
     } catch (e) {
       // Timeout o sin red: el carrito se conserva para reintentar.
@@ -235,7 +277,8 @@ class _CartPageState extends State<CartPage> {
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: TextField(
               controller: _addressController,
-              onChanged: (_) => _addressEdited = true,
+              readOnly: true,
+              onTap: _pickAddress,
               style: FD.text(15),
               decoration: InputDecoration(
                 hintText: 'Calle, número y comuna',
@@ -298,6 +341,11 @@ class _CartPageState extends State<CartPage> {
 
     final orderButton = Obx(() {
       if (_cart.lines.isEmpty) return const SizedBox.shrink();
+      final covered =
+          !_catalog.loading.value &&
+          !_catalog.needsAddress.value &&
+          _catalog.error.value == null &&
+          _catalog.restaurantById(_cart.restaurantId ?? -1) != null;
       return SafeArea(
         top: false,
         child: Padding(
@@ -320,14 +368,19 @@ class _CartPageState extends State<CartPage> {
                   ),
                   textStyle: FD.display(17),
                 ),
-                onPressed: _placing ? null : _placeOrder,
+                onPressed: _placing || !covered ? null : _placeOrder,
                 child: _placing
                     ? const SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text('PEDIR AHORA · ${clp(_cart.total)}'),
+                    : Text(
+                        covered
+                            ? 'PEDIR AHORA · ${clp(_cart.total)}'
+                            : 'SIN COBERTURA PARA ESTA DIRECCION',
+                        textAlign: TextAlign.center,
+                      ),
               ),
             ),
           ),

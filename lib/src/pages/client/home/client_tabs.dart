@@ -31,6 +31,16 @@ class _CatalogScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final catalog = Get.find<CatalogController>();
     return Obx(() {
+      if (catalog.needsAddress.value) {
+        return IllustratedMessage(
+          illustration: AppIllustration.emptyOrders,
+          title: 'Selecciona tu direccion',
+          message:
+              'Confirma el pin y la comuna para ver los comercios que entregan ahi.',
+          actionLabel: 'Elegir direccion',
+          onAction: () => Get.to(() => const AddressSelectorPage()),
+        );
+      }
       if (catalog.loading.value && catalog.restaurants.isEmpty) {
         return const Center(child: CircularProgressIndicator());
       }
@@ -41,6 +51,15 @@ class _CatalogScaffold extends StatelessWidget {
           message: 'Revisa tu conexión e intenta de nuevo.',
           actionLabel: 'Reintentar',
           onAction: catalog.load,
+        );
+      }
+      if (!catalog.loading.value && catalog.restaurants.isEmpty) {
+        return IllustratedMessage(
+          illustration: AppIllustration.emptyOrders,
+          title: 'Sin comercios con cobertura',
+          message: 'Todavia no hay comercios que entreguen en esta direccion.',
+          actionLabel: 'Cambiar direccion',
+          onAction: () => Get.to(() => const AddressSelectorPage()),
         );
       }
       return RefreshIndicator(onRefresh: catalog.load, child: builder(catalog));

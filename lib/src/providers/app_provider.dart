@@ -116,6 +116,54 @@ class AppProvider {
     return List<Map<String, dynamic>>.from(_body(res) ?? []);
   }
 
+  Future<List<Map<String, dynamic>>> getCoveredRestaurants({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final uri = Uri.parse('$_base/catalog/restaurants').replace(
+      queryParameters: {'latitude': '$latitude', 'longitude': '$longitude'},
+    );
+    final res = await _send(http.get(uri));
+    return List<Map<String, dynamic>>.from(_body(res) ?? []);
+  }
+
+  Future<Map<String, dynamic>> getMyRestaurant() async {
+    final res = await _send(
+      http.get(
+        Uri.parse('$_base/api/catalog/my/restaurant'),
+        headers: await _headers,
+      ),
+    );
+    return Map<String, dynamic>.from(_body(res));
+  }
+
+  Future<Map<String, dynamic>> updateStoreLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final res = await _send(
+      http.put(
+        Uri.parse('$_base/api/catalog/my/restaurant/location'),
+        headers: await _headers,
+        body: jsonEncode({'latitude': latitude, 'longitude': longitude}),
+      ),
+    );
+    return Map<String, dynamic>.from(_body(res));
+  }
+
+  Future<Map<String, dynamic>> updateStoreDeliveryRadius(
+    double radiusKm,
+  ) async {
+    final res = await _send(
+      http.put(
+        Uri.parse('$_base/api/catalog/my/restaurant/delivery-radius'),
+        headers: await _headers,
+        body: jsonEncode({'deliveryRadiusKm': radiusKm}),
+      ),
+    );
+    return Map<String, dynamic>.from(_body(res));
+  }
+
   Future<List<Map<String, dynamic>>> getAvailableDeliveryOrders({
     required int restaurantId,
     int limit = 5,
@@ -138,6 +186,9 @@ class AppProvider {
     String receptionMode = 'SEGURO',
     double? distanceKm,
     int? estimatedMinutes,
+    double? latitude,
+    double? longitude,
+    String? commune,
   }) async {
     if (_isDemo) {
       return _demo.createOrder(
@@ -164,6 +215,9 @@ class AppProvider {
                 .map((item) => {...item, 'product_id': item['product_id']})
                 .toList(),
           'address': address,
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          if (commune != null) 'commune': commune,
           'payment_method': paymentMethod,
           'receptionMode': receptionMode,
           if (distanceKm != null) 'distance_km': distanceKm,
