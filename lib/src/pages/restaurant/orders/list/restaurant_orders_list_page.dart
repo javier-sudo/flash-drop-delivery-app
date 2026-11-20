@@ -8,6 +8,7 @@ import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/order_watch_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
@@ -136,6 +137,8 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
   void initState() {
     super.initState();
     _loadOrders();
+    // Con "Recibiendo pedidos" activo, avisa también con la app cerrada.
+    OrderWatchService.refresh();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _loadOrders(silent: true),
@@ -158,9 +161,8 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
     try {
       final data = await appProvider.getOrders(view: 'restaurant');
       // Avisa de pedidos nuevos y cambios solo en las recargas automáticas.
-      await LocalNotificationsService.instance.observeOrders(
-        scope: 'commerce',
-        orders: data,
+      await LocalNotificationsService.instance.observeStore(
+        data,
         notify: silent,
       );
       data.sort((a, b) => orderTime(b).compareTo(orderTime(a)));

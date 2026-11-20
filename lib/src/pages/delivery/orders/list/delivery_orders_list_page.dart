@@ -128,14 +128,16 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
         }),
       );
       final routes = await routesFuture;
-      await LocalNotificationsService.instance.observeOrders(
-        scope: 'delivery',
-        orders: routes,
-        notify: silent,
-      );
       final availableOrders = availableByRestaurant
           .expand((orders) => orders)
           .toList();
+      // Un solo aviso agrupado de disponibles, y aviso si cancelan su ruta.
+      await LocalNotificationsService.instance.observeCourier(
+        routes: routes,
+        available: availableOrders,
+        isAvailable: _driver.available.value,
+        notify: silent,
+      );
       routes.sort(_compareRoutesByRecency);
       availableOrders.sort(_compareRoutesByRecency);
       if (!mounted) return;

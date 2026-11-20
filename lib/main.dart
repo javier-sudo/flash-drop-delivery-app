@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -14,6 +16,7 @@ import 'package:proyecto_app_delivery_gessof/src/pages/roles/roles_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/background_order_sync_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/connection_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/order_watch_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/session_manager.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/connection_banner.dart';
@@ -23,6 +26,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
   await LocalNotificationsService.instance.initialize();
+  OrderWatchService.init();
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
     try {
       await Workmanager().initialize(backgroundOrderSyncDispatcher);
@@ -32,7 +36,18 @@ void main() async {
     }
   }
   final hasSession = await SessionManager.instance.restoreSession();
+  // Si la app se abrió tocando un aviso, se va al pedido tras el primer frame.
+  final launchPayload = hasSession
+      ? await LocalNotificationsService.instance.launchPayload()
+      : null;
   runApp(MyApp(initialRoute: hasSession ? '/roles' : '/'));
+  // Retoma el servicio si el repartidor quedó disponible o el local abierto.
+  if (hasSession) unawaited(OrderWatchService.refresh());
+  if (launchPayload != null) {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => LocalNotificationsService.openFromPayload(launchPayload),
+    );
+  }
 }
 
 class MyApp extends StatefulWidget {
