@@ -213,7 +213,7 @@ class OrderNotificationRules {
     final next = <String, String>{};
     final show = <OrderNotice>[];
     final cancel = <int>[];
-    var pendingNew = 0;
+    var pendingPreparation = 0;
 
     for (final order in orders) {
       final id = _orderId(order);
@@ -222,20 +222,28 @@ class OrderNotificationRules {
       next[id] = status;
       final s = status.toLowerCase();
       final isNew = s.contains('nuevo');
-      if (isNew) pendingNew++;
+      final isPreparing = s.contains('preparando');
+      final needsPreparation = isNew || isPreparing;
+      if (needsPreparation) pendingPreparation++;
 
       final before = statuses[id];
+      final wasUnpaid =
+          before != null &&
+          before.toLowerCase().contains('pendiente') &&
+          before.toLowerCase().contains('pago');
       final noticeId = _noticeId('store:$id');
       if (!seeded) continue;
 
-      if (before == null && isNew) {
+      // F7 activates paid orders directly in Preparando, including orders
+      // that were already seen while payment was still pending.
+      if (needsPreparation && (before == null || wasUnpaid)) {
         show.add(
           OrderNotice(
             id: noticeId,
             channel: NoticeChannel.newOrders,
             priority: NoticePriority.high,
             title: 'Nuevo pedido ${_label(order)}',
-            body: 'Espera tu confirmación.',
+            body: 'Revísalo en tus pedidos.',
             route: _routeStore,
             orderId: id,
             groupKey: storeGroupKey,
@@ -256,7 +264,8 @@ class OrderNotificationRules {
               groupKey: storeGroupKey,
             ),
           );
-        } else if (before.toLowerCase().contains('nuevo') && !isNew) {
+        } else if ((before.toLowerCase().contains('nuevo') && !isNew) ||
+            (before.toLowerCase().contains('preparando') && !isPreparing)) {
           // La tienda ya lo atendió: el aviso de pedido nuevo sobra.
           cancel.add(noticeId);
         }
@@ -264,7 +273,7 @@ class OrderNotificationRules {
     }
 
     if (seeded) {
-      if (pendingNew >= storeSummaryThreshold) {
+      if (pendingPreparation >= storeSummaryThreshold) {
         show.add(
           OrderNotice(
             id: storeSummaryNoticeId,
@@ -272,8 +281,8 @@ class OrderNotificationRules {
             priority: NoticePriority.high,
             // El resumen se actualiza sin volver a sonar: ya sonó cada pedido.
             alert: false,
-            title: '$pendingNew pedidos nuevos',
-            body: 'Esperan tu confirmación.',
+            title: '$pendingPreparation pedidos por preparar',
+            body: 'Revísalos en tus pedidos.',
             route: _routeStore,
             groupKey: storeGroupKey,
             isGroupSummary: true,

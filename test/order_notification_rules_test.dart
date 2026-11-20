@@ -258,6 +258,7 @@ void main() {
     test('la primera consulta no avisa los pedidos que ya había', () {
       final batch = OrderNotificationRules.store(null, [
         order(1, 'NUEVO_PEDIDO'),
+        order(2, 'Preparando'),
       ]);
       expect(batch.show, isEmpty);
       expect(batch.cancel, isEmpty);
@@ -286,7 +287,7 @@ void main() {
       ]);
       final summary = batch.show.where((n) => n.isGroupSummary).single;
       expect(summary.id, OrderNotificationRules.storeSummaryNoticeId);
-      expect(summary.title, '3 pedidos nuevos');
+      expect(summary.title, '3 pedidos por preparar');
       expect(summary.alert, isFalse);
     });
 
@@ -318,13 +319,70 @@ void main() {
       expect(batch.show.single.priority, NoticePriority.high);
     });
 
-    test('un pedido que aparece ya pagado y preparando no se avisa', () {
+    test('un pedido nuevo ya pagado en Preparando avisa con sonido', () {
       final state = persist(OrderNotificationRules.store(null, []));
       final batch = OrderNotificationRules.store(state, [
-        order(9, 'PREPARANDO'),
+        order(9, 'Preparando', code: 'FD-9'),
+      ]);
+      expect(batch.show.single.title, 'Nuevo pedido FD-9');
+      expect(batch.show.single.alert, isTrue);
+      expect(batch.show.single.body, isNot(contains('confirmación')));
+    });
+
+    test('aprobar un pago pendiente avisa una sola vez a la tienda', () {
+      for (final pending in ['Pendiente de pago', 'PENDIENTE_PAGO']) {
+        final state = persist(
+          OrderNotificationRules.store(null, [order(9, pending)]),
+        );
+        final batch = OrderNotificationRules.store(state, [
+          order(9, 'Preparando'),
+        ]);
+        expect(batch.show, hasLength(1));
+        expect(batch.show.single.alert, isTrue);
+        final repeated = OrderNotificationRules.store(persist(batch), [
+          order(9, 'Preparando'),
+        ]);
+        expect(repeated.show, isEmpty);
+      }
+    });
+
+    test('un pedido sin pagar no avisa ni aumenta el resumen', () {
+      final state = persist(OrderNotificationRules.store(null, []));
+      final batch = OrderNotificationRules.store(state, [
+        order(1, 'Pendiente de pago'),
+        order(2, 'PENDIENTE_PAGO'),
+        order(3, 'Pendiente de pago'),
       ]);
       expect(batch.show, isEmpty);
     });
+
+    test('el resumen incluye los pedidos pagados en Preparando', () {
+      final state = persist(OrderNotificationRules.store(null, []));
+      final batch = OrderNotificationRules.store(state, [
+        order(1, 'Preparando'),
+        order(2, 'Preparando'),
+        order(3, 'Preparando'),
+      ]);
+      expect(batch.show.where((n) => !n.isGroupSummary), hasLength(3));
+      final summary = batch.show.where((n) => n.isGroupSummary).single;
+      expect(summary.title, '3 pedidos por preparar');
+      expect(summary.alert, isFalse);
+    });
+
+    test(
+      'al dejarlo listo quita el aviso del pedido recibido en Preparando',
+      () {
+        final received = OrderNotificationRules.store(
+          persist(OrderNotificationRules.store(null, [])),
+          [order(9, 'Preparando')],
+        );
+        final ready = OrderNotificationRules.store(persist(received), [
+          order(9, 'Listo para retiro'),
+        ]);
+        expect(ready.show, isEmpty);
+        expect(ready.cancel, contains(received.show.single.id));
+      },
+    );
   });
 
   group('cliente', () {
