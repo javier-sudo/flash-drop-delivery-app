@@ -33,6 +33,10 @@ class LoginController extends GetxController {
   }
 
   void goToRegisterPage() => Get.toNamed('/register');
+  void goToForgotPasswordPage() => Get.toNamed(
+    '/forgot-password',
+    arguments: {'email': emailController.text.trim()},
+  );
   void goToRolesPage() => Get.offNamedUntil('/roles', (route) => false);
 
   void _applyRouteArguments() {

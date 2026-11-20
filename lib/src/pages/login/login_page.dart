@@ -84,7 +84,14 @@ class LoginPage extends StatelessWidget {
                         icon: Icons.lock_outline,
                         obscureText: true,
                       ),
-                      const SizedBox(height: 22),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: con.goToForgotPasswordPage,
+                          child: const Text('¿Olvidaste tu contraseña?'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Obx(() {
                         final loading = con.isLoading.value;
                         return SizedBox(
@@ -108,8 +115,10 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                // Wrap: con letra grande el enlace pasa a la línea siguiente.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text('Quieres crear un perfil?'),
                     TextButton(
