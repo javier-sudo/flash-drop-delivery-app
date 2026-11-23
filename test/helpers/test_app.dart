@@ -17,6 +17,10 @@ class FakeProvider extends AppProvider {
   DemoBackend get _demo => DemoBackend.instance;
   List<Map<String, dynamic>>? lastOrderItems;
   String? lastReceptionMode;
+  double? lastLatitude;
+  double? lastLongitude;
+  String? lastCommune;
+  Set<int>? coveredRestaurantIds;
 
   static List<Map<String, dynamic>> _noImages(
     List<Map<String, dynamic>> rows,
@@ -28,6 +32,19 @@ class FakeProvider extends AppProvider {
   @override
   Future<List<Map<String, dynamic>>> getRestaurants() async =>
       _noImages(await _demo.restaurants());
+  @override
+  Future<List<Map<String, dynamic>>> getCoveredRestaurants({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final stores = await getRestaurants();
+    return coveredRestaurantIds == null
+        ? stores
+        : stores
+              .where((store) => coveredRestaurantIds!.contains(store['id']))
+              .toList();
+  }
+
   @override
   Future<List<Map<String, dynamic>>> getOrders({String? view}) =>
       _demo.orders(view: view);
@@ -63,9 +80,15 @@ class FakeProvider extends AppProvider {
     String receptionMode = 'SEGURO',
     double? distanceKm,
     int? estimatedMinutes,
+    double? latitude,
+    double? longitude,
+    String? commune,
   }) {
     lastOrderItems = items;
     lastReceptionMode = receptionMode;
+    lastLatitude = latitude;
+    lastLongitude = longitude;
+    lastCommune = commune;
     return _demo.createOrder(
       items: items ?? [],
       address: address,
