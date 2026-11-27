@@ -8,6 +8,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/delivery_address_store.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/delivery_destination.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
@@ -24,6 +25,8 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   final _communeController = TextEditingController();
   final _mapController = MapController();
   final _box = GetStorage();
+  late final String? _addressOwner;
+  bool _saving = false;
 
   LatLng _center = const LatLng(-33.4372, -70.6506); // Santiago por defecto
   String _addressText = '';
@@ -36,6 +39,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
   @override
   void initState() {
     super.initState();
+    _addressOwner = DeliveryAddressStore.instance.currentOwner;
     _loadCurrentAddress();
   }
 
@@ -53,6 +57,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
     if (raw is Map) {
       final point = _savedPoint(raw);
       final addr = raw['address']?.toString() ?? '';
+      if (addr.isNotEmpty) _searchController.text = addr;
       if (point != null && addr.isNotEmpty) {
         _center = point;
         _addressText = addr;
@@ -148,6 +153,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
 
   // Mapa arrastrado → geocodificación inversa
   void _onMapMoved(LatLng center) {
+    if (_saving) return;
     _center = center;
     _locationRevision++;
     _communeController.clear();
@@ -228,28 +234,18 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
     }
   }
 
-  Future<void> _confirmAddress() async {
+  Future<void> _confirmAddress() => _persistSelection();
+
+  Future<void> _saveWithLabel(String label) => _persistSelection(label: label);
+
+  Future<void> _persistSelection({String? label}) async {
+    if (_saving) return;
     if (_addressText.trim().isEmpty || _forwardGeocoding || _reverseGeocoding) {
       Get.snackbar(
         'Falta la dirección',
         'Mueve el mapa o escribe una dirección.',
         snackPosition: SnackPosition.BOTTOM,
       );
-      return;
-    }
-    if (!_validDestination()) return;
-    await _box.write('delivery_address', {
-      'address': _addressText.trim(),
-      'label': null,
-      'lat': _center.latitude,
-      'lng': _center.longitude,
-      'commune': _communeController.text.trim(),
-    });
-    Get.back();
-  }
-
-  Future<void> _saveWithLabel(String label) async {
-    if (_addressText.trim().isEmpty || _forwardGeocoding || _reverseGeocoding) {
       return;
     }
     if (!_validDestination()) return;
@@ -260,20 +256,30 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
       'lng': _center.longitude,
       'commune': _communeController.text.trim(),
     };
-    await _box.write('delivery_address', entry);
-
-    final saved = _savedAddresses;
-    saved.removeWhere((e) => e['label'] == label);
-    saved.insert(0, entry);
-    if (saved.length > 5) saved.removeLast();
-    await _box.write('saved_addresses', saved);
-
-    Get.snackbar(
-      'Guardada',
-      '"$label" guardada correctamente.',
-      snackPosition: SnackPosition.BOTTOM,
-    );
-    Get.back();
+    _debounce?.cancel();
+    _locationRevision++;
+    setState(() => _saving = true);
+    try {
+      await DeliveryAddressStore.instance.select(
+        entry,
+        bookmark: label != null,
+        expectedOwner: _addressOwner,
+      );
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _geocodingError = error is FormatException
+              ? error.message.toString()
+              : error is StateError
+              ? 'Tu sesión cambió. Vuelve a abrir las direcciones.'
+              : 'No se pudo guardar la dirección. Intenta nuevamente.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   String _communeFrom(Placemark place) =>
@@ -329,6 +335,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                   child: TextField(
                     controller: _searchController,
+                    enabled: !_saving,
                     textInputAction: TextInputAction.search,
                     onChanged: _onSearchChanged,
                     onSubmitted: _forwardGeocode,
@@ -599,6 +606,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                   ),
                   child: TextField(
                     controller: _communeController,
+                    enabled: !_saving,
                     maxLength: 120,
                     decoration: const InputDecoration(
                       labelText: 'Comuna',
@@ -618,7 +626,10 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                         if (_addressText.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: Row(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 const Text(
                                   'Guardar como:',
@@ -627,15 +638,17 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                                     color: Color(0xFF6A6F77),
                                   ),
                                 ),
-                                const SizedBox(width: 10),
                                 _QuickSaveChip(
                                   label: 'Casa',
-                                  onTap: () => _saveWithLabel('Casa'),
+                                  onTap: _saving
+                                      ? null
+                                      : () => _saveWithLabel('Casa'),
                                 ),
-                                const SizedBox(width: 8),
                                 _QuickSaveChip(
                                   label: 'Trabajo',
-                                  onTap: () => _saveWithLabel('Trabajo'),
+                                  onTap: _saving
+                                      ? null
+                                      : () => _saveWithLabel('Trabajo'),
                                 ),
                               ],
                             ),
@@ -643,11 +656,13 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
                         SizedBox(
                           height: 52,
                           child: FilledButton.icon(
-                            onPressed: _addressText.isNotEmpty
+                            onPressed: _addressText.isNotEmpty && !_saving
                                 ? _confirmAddress
                                 : null,
                             icon: const Icon(Icons.check_circle_outline),
-                            label: const Text('Usar esta dirección'),
+                            label: Text(
+                              _saving ? 'Guardando...' : 'Usar esta dirección',
+                            ),
                           ),
                         ),
                       ],
@@ -665,7 +680,7 @@ class _AddressSelectorPageState extends State<AddressSelectorPage> {
 
 class _QuickSaveChip extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _QuickSaveChip({required this.label, required this.onTap});
 

@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+import 'package:proyecto_app_delivery_gessof/src/models/checkout_quote.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/payment_page.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:latlong2/latlong.dart';
@@ -27,11 +32,7 @@ class CartPage extends StatefulWidget {
 }
 
 class _CartPageState extends State<CartPage> {
-  static const _payments = {
-    'Efectivo': Icons.payments_outlined,
-    'Tarjeta': Icons.credit_card,
-    'Transferencia': Icons.account_balance_outlined,
-  };
+  static const _payments = {'Tarjeta': Icons.credit_card};
 
   final _cart = Get.find<CartController>();
   final _catalog = Get.find<CatalogController>();
@@ -45,8 +46,67 @@ class _CartPageState extends State<CartPage> {
   /// Todo pedido nuevo se entrega con PIN: el repartidor lo pide al cliente.
   static const _receptionMode = 'SEGURO';
 
-  String _payment = 'Efectivo';
+  String _payment = 'Tarjeta';
   bool _placing = false;
+  CheckoutQuote? _quote;
+  bool _quoting = false;
+  String? _quoteError;
+  int _quoteRevision = 0;
+  Worker? _cartWorker;
+  void Function()? _stopAddressListener;
+
+  String get _signature => jsonEncode({
+    'items': _cart.toOrderItems(),
+    'destination': _box.read('delivery_address'),
+  });
+
+  Future<CheckoutQuote?> _refreshQuote() async {
+    final revision = ++_quoteRevision;
+    final destination = DeliveryDestination.fromStorage(
+      _box.read('delivery_address'),
+    );
+    if (_cart.lines.isEmpty || destination == null) {
+      if (mounted) {
+        setState(() {
+          _quote = null;
+          _quoting = false;
+        });
+      }
+      return null;
+    }
+    final signature = _signature;
+    setState(() {
+      _quoting = true;
+      _quote = null;
+      _quoteError = null;
+    });
+    try {
+      final quote = CheckoutQuote.fromJson(
+        await _api.quoteOrder(
+          items: _cart.toOrderItems(),
+          latitude: destination.latitude,
+          longitude: destination.longitude,
+        ),
+      );
+      if (!mounted || revision != _quoteRevision || signature != _signature) {
+        return null;
+      }
+      setState(() => _quote = quote);
+      return quote;
+    } catch (_) {
+      if (mounted && revision == _quoteRevision) {
+        setState(
+          () => _quoteError =
+              'No se pudo cotizar el pedido. Revisa la cobertura y reintenta.',
+        );
+      }
+      return null;
+    } finally {
+      if (mounted && revision == _quoteRevision) {
+        setState(() => _quoting = false);
+      }
+    }
+  }
 
   /// Si el cliente escribió la dirección a mano no la pisamos al volver.
   bool _addressEdited = false;
@@ -55,6 +115,12 @@ class _CartPageState extends State<CartPage> {
   @override
   void initState() {
     super.initState();
+    _cartWorker = ever(_cart.lines, (_) => _refreshQuote());
+    _stopAddressListener = _box.listenKey('delivery_address', (_) {
+      _addressController.text = _savedAddress();
+      _refreshQuote();
+    });
+    _refreshQuote();
     // Como pestaña, el estado sobrevive: refresca la dirección elegida en
     // Inicio o Perfil cada vez que se vuelve al carrito.
     if (widget.embedded && Get.isRegistered<ClientShellController>()) {
@@ -77,6 +143,9 @@ class _CartPageState extends State<CartPage> {
   @override
   void dispose() {
     _tabWorker?.dispose();
+    _cartWorker?.dispose();
+    _stopAddressListener?.call();
+    _quoteRevision++;
     _addressController.dispose();
     super.dispose();
   }
@@ -122,6 +191,7 @@ class _CartPageState extends State<CartPage> {
     );
     if (_catalog.error.value != null ||
         restaurant == null ||
+        restaurant.isOpen != true ||
         currentDestination != destination) {
       setState(() => _placing = false);
       Get.snackbar(
@@ -146,6 +216,36 @@ class _CartPageState extends State<CartPage> {
     }
     final ResponseApi response;
     try {
+      final shownTotal = _quote?.total;
+      final quotedDestination = _signature;
+      final quote = await _refreshQuote();
+      if (!mounted) return;
+      if (quote == null ||
+          quotedDestination != _signature ||
+          (shownTotal != null && (shownTotal - quote.total).abs() > 0.01)) {
+        setState(() => _placing = false);
+        Get.snackbar(
+          'Revisa el total',
+          _quoteError ?? 'La cotización cambió. Confirma el nuevo total.',
+        );
+        return;
+      }
+      final signature = _signature;
+      final attempt = _box.read('checkout_attempt');
+      final key =
+          attempt is Map &&
+              attempt['signature'] == signature &&
+              attempt['key'] is String
+          ? attempt['key'] as String
+          : const Uuid().v4();
+      await _box.write('checkout_attempt', {
+        'signature': signature,
+        'key': key,
+      });
+      if (!mounted || signature != _signature) {
+        if (mounted) setState(() => _placing = false);
+        return;
+      }
       response = await _api.createOrder(
         items: _cart.toOrderItems(),
         address: address,
@@ -156,6 +256,7 @@ class _CartPageState extends State<CartPage> {
         latitude: destination.latitude,
         longitude: destination.longitude,
         commune: destination.commune,
+        idempotencyKey: key,
       );
     } catch (e) {
       // Timeout o sin red: el carrito se conserva para reintentar.
@@ -171,20 +272,36 @@ class _CartPageState extends State<CartPage> {
     }
     if (!mounted) return;
     if (response.success == true) {
-      await _rememberAddress(address);
       await _rememberDeliveryCode(response.data);
+      await _box.remove('checkout_attempt');
       _cart.clear();
+      if (!mounted) return;
       _addressEdited = false;
       // Vuelve a la pantalla principal del cliente (cierra checkout y menú)
       // y abre "Mis pedidos".
       // Como pestaña el estado sigue vivo: deja el botón listo otra vez.
       setState(() => _placing = false);
       ClientShellController.openTab(ClientTab.orders);
-      Get.snackbar(
-        '¡Pedido confirmado!',
-        'Puedes seguirlo en Mis pedidos.',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      final data = response.data;
+      if (data is Map &&
+          '${data['status']}'.toLowerCase().contains('pendiente')) {
+        final id = data['id'] ?? data['orderId'];
+        if (id != null) {
+          Get.to(
+            () => OrderPaymentPage(
+              orderId: id,
+              initialUrl: data['paymentUrl']?.toString(),
+              total: num.tryParse('${data['total']}')?.toDouble(),
+            ),
+          );
+        }
+      } else {
+        Get.snackbar(
+          '¡Pedido confirmado!',
+          'Puedes seguirlo en Mis pedidos.',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      }
     } else {
       setState(() => _placing = false);
       Get.snackbar(
@@ -206,19 +323,6 @@ class _CartPageState extends State<CartPage> {
     } catch (e) {
       debugPrint('No se pudo guardar el código de entrega: $e');
     }
-  }
-
-  Future<void> _rememberAddress(String address) async {
-    await _box.write('deliveryAddress', address);
-    final raw = _box.read('delivery_address');
-    final matches =
-        raw is Map &&
-        '${raw['address'] ?? ''}'.trim().toLowerCase() ==
-            address.trim().toLowerCase();
-    final updated = raw is Map && matches
-        ? (Map<String, dynamic>.from(raw)..['address'] = address)
-        : {'address': address, 'label': null, 'lat': null, 'lng': null};
-    await _box.write('delivery_address', updated);
   }
 
   /// Distancia y minutos estimados. Si el geocoder no responde, usa valores
@@ -261,6 +365,14 @@ class _CartPageState extends State<CartPage> {
               child: Text(
                 restaurant.name,
                 style: FD.text(14, weight: FontWeight.w700, color: FD.blue),
+              ),
+            ),
+          if (restaurant?.isOpen == false)
+            ListTile(
+              title: const Text('Este local está cerrado.'),
+              trailing: TextButton(
+                onPressed: _catalog.load,
+                child: const Text('Actualizar'),
               ),
             ),
           Padding(
@@ -312,9 +424,9 @@ class _CartPageState extends State<CartPage> {
               children: [
                 for (final entry in _payments.entries)
                   _PaymentOption(
-                    label: entry.key == 'Tarjeta'
-                        ? 'Tarjeta al recibir'
-                        : entry.key,
+                    label: Environment.autoApproveTestPayments
+                        ? 'Pago de prueba (automatico)'
+                        : 'Tarjeta en linea',
                     icon: entry.value,
                     selected: _payment == entry.key,
                     onTap: () => setState(() => _payment = entry.key),
@@ -328,9 +440,26 @@ class _CartPageState extends State<CartPage> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-            child: _Totals(subtotal: subtotal, total: _cart.total),
+            child: _quote == null
+                ? Column(
+                    children: [
+                      if (_quoting) const LinearProgressIndicator(),
+                      Text(_quoteError ?? 'Cotizando envío...'),
+                      if (!_quoting)
+                        TextButton.icon(
+                          onPressed: _refreshQuote,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Reintentar cotización'),
+                        ),
+                    ],
+                  )
+                : _Totals(
+                    subtotal: _quote!.subtotal,
+                    deliveryFee: _quote!.deliveryFee,
+                    total: _quote!.total,
+                  ),
           ),
-          if (subtotal >= _flashClubMinimum)
+          if (Environment.useDemoMode && subtotal >= _flashClubMinimum)
             const Padding(
               padding: EdgeInsets.fromLTRB(14, 12, 14, 0),
               child: _FlashClubNote(),
@@ -346,6 +475,8 @@ class _CartPageState extends State<CartPage> {
           !_catalog.needsAddress.value &&
           _catalog.error.value == null &&
           _catalog.restaurantById(_cart.restaurantId ?? -1) != null;
+      final isClosed =
+          _catalog.restaurantById(_cart.restaurantId ?? -1)?.isOpen != true;
       return SafeArea(
         top: false,
         child: Padding(
@@ -368,7 +499,14 @@ class _CartPageState extends State<CartPage> {
                   ),
                   textStyle: FD.display(17),
                 ),
-                onPressed: _placing || !covered ? null : _placeOrder,
+                onPressed:
+                    _placing ||
+                        _quoting ||
+                        _quote == null ||
+                        !covered ||
+                        isClosed
+                    ? null
+                    : _placeOrder,
                 child: _placing
                     ? const SizedBox(
                         width: 22,
@@ -376,9 +514,11 @@ class _CartPageState extends State<CartPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(
-                        covered
-                            ? 'PEDIR AHORA · ${clp(_cart.total)}'
-                            : 'SIN COBERTURA PARA ESTA DIRECCION',
+                        !covered
+                            ? 'SIN COBERTURA PARA ESTA DIRECCION'
+                            : isClosed
+                            ? 'LOCAL CERRADO'
+                            : 'PEDIR AHORA · ${_quote == null ? "-" : clp(_quote!.total)}',
                         textAlign: TextAlign.center,
                       ),
               ),
@@ -394,7 +534,7 @@ class _CartPageState extends State<CartPage> {
         appBar: widget.embedded
             ? null
             : AppBar(title: const Text('Tu carrito')),
-        body: body,
+        body: IgnorePointer(ignoring: _placing, child: body),
         bottomNavigationBar: orderButton,
       ),
     );
@@ -606,8 +746,13 @@ class _PaymentOption extends StatelessWidget {
 
 class _Totals extends StatelessWidget {
   final double subtotal;
+  final double deliveryFee;
   final double total;
-  const _Totals({required this.subtotal, required this.total});
+  const _Totals({
+    required this.subtotal,
+    required this.deliveryFee,
+    required this.total,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -632,7 +777,7 @@ class _Totals extends StatelessWidget {
       child: Column(
         children: [
           row('Subtotal', subtotal),
-          row('Envío', CartController.deliveryFee.toDouble()),
+          row('Envío', deliveryFee),
           const Divider(height: 18, color: FD.line),
           row('Total', total, strong: true),
         ],

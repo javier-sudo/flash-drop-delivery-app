@@ -49,7 +49,7 @@ void main() {
     expect(find.text('Urban Burger'), findsWidgets);
     expect(find.text('Comercios cerca de ti'), findsOneWidget);
     expect(find.text('Hamburguesas'), findsWidgets);
-    expect(find.text('FLASH CLUB'), findsOneWidget);
+    expect(find.text('FLASH CLUB'), findsNothing);
     expect(find.text('Inicio'), findsOneWidget);
     expect(find.text('Perfil'), findsOneWidget);
   });

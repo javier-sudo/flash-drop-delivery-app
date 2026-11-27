@@ -16,6 +16,7 @@ class RestaurantView {
   final double? rating;
   final int? deliveryTime;
   final double? deliveryRadiusKm;
+  final bool? isOpen;
   final List<Map<String, dynamic>> products;
 
   RestaurantView({
@@ -28,6 +29,7 @@ class RestaurantView {
     this.rating,
     this.deliveryTime,
     this.deliveryRadiusKm,
+    this.isOpen,
   });
 
   /// Categorías en el orden en que aparecen sus productos.
@@ -152,6 +154,7 @@ class CatalogController extends GetxController {
             rating: r['rating'] == null ? null : toDouble(r['rating']),
             deliveryTime: toInt(r['deliveryTime']),
             deliveryRadiusKm: double.tryParse('${r['deliveryRadiusKm']}'),
+            isOpen: r['open'] is bool ? r['open'] as bool : null,
             products: items,
           );
         })

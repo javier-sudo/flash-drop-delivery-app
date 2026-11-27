@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/reviews_page.dart';
 import 'package:get/get.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/client/home/client_shell_controller.dart';
@@ -48,6 +49,17 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
           slivers: [
             SliverToBoxAdapter(
               child: _StoreHeader(restaurant: r, topPadding: topPadding),
+            ),
+            SliverToBoxAdapter(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () =>
+                      Get.to(() => ReviewsPage(restaurantId: r.id)),
+                  icon: const Icon(Icons.star_outline),
+                  label: const Text('Calificaciones'),
+                ),
+              ),
             ),
             if (_categories.length > 1)
               SliverPersistentHeader(
@@ -134,7 +146,10 @@ class _StoreHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const TagPill('Restaurante', background: FD.yellow),
+              TagPill(
+                r.isOpen == false ? 'Cerrado' : 'Restaurante',
+                background: FD.yellow,
+              ),
               const SizedBox(height: 10),
               Text(r.name, style: FD.display(26)),
               const SizedBox(height: 4),

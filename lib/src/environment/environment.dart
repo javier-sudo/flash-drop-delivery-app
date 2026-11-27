@@ -1,4 +1,9 @@
 class Environment {
+  static const bool autoApproveTestPayments = bool.fromEnvironment(
+    'AUTO_APPROVE_TEST_PAYMENTS',
+    defaultValue: false,
+  );
+
   /// URL del API Gateway. Se cambia sin editar codigo:
   /// flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
   static const String apiUrl = String.fromEnvironment(

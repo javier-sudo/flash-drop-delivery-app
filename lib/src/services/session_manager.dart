@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/users_provider.dart';
+import 'package:proyecto_app_delivery_gessof/src/services/delivery_address_store.dart';
 
 /// Sesión del usuario: el perfil queda en GetStorage y los tokens en
 /// almacenamiento seguro. Renueva el access token antes de que venza.
@@ -25,7 +26,10 @@ class SessionManager {
     'selected_role',
     'deliveryAddress',
     'delivery_address',
+    'saved_addresses',
+    DeliveryAddressStore.ownerKey,
     'driver_active_orders',
+    'checkout_attempt',
   ];
 
   final _storage = GetStorage();
@@ -45,7 +49,17 @@ class SessionManager {
     if (rawUser is! Map || rawUser.isEmpty) return false;
 
     await _migrateLegacySession(Map<String, dynamic>.from(rawUser));
-    return (await accessToken(forceRefresh: true)) != null;
+    if (await accessToken(forceRefresh: true) == null) {
+      await clearSession();
+      return false;
+    }
+    try {
+      await DeliveryAddressStore.instance.restoreCurrent(migrateLegacy: true);
+    } catch (_) {
+      await DeliveryAddressStore.instance.clearActive();
+      debugPrint('No se pudieron restaurar las direcciones guardadas.');
+    }
+    return true;
   }
 
   Future<Map<String, String>> authorizedHeaders() async {
@@ -71,13 +85,35 @@ class SessionManager {
       ..remove('refreshToken')
       ..remove('token')
       ..remove('session_token');
+    try {
+      await DeliveryAddressStore.instance.archiveCurrent();
+    } catch (_) {
+      debugPrint('No se pudo respaldar la dirección de la sesión anterior.');
+    }
+    await DeliveryAddressStore.instance.clearActive();
     await _storage.write('user', user);
     await _secureStorage.write(key: _accessTokenKey, value: accessToken);
     await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
     await _storage.remove('token');
+    try {
+      await DeliveryAddressStore.instance.restoreCurrent();
+    } catch (_) {
+      await DeliveryAddressStore.instance.clearActive();
+      debugPrint('No se pudieron restaurar las direcciones de esta cuenta.');
+    }
   }
 
-  Future<void> clearSession() async {
+  Future<void> clearSession({bool forgetAddresses = false}) async {
+    try {
+      if (forgetAddresses) {
+        await DeliveryAddressStore.instance.forgetCurrent();
+      } else {
+        await DeliveryAddressStore.instance.archiveCurrent();
+      }
+    } catch (_) {
+      // Preference storage must never prevent clearing authentication.
+      debugPrint('No se pudo actualizar el respaldo local de direcciones.');
+    }
     await Future.wait([
       for (final key in sessionKeys) _storage.remove(key),
       _secureStorage.delete(key: _accessTokenKey),

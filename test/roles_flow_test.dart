@@ -78,6 +78,9 @@ void main() {
 
       expect(find.text('Nuevos (0)'), findsOneWidget);
       expect(find.text('Preparando (2)'), findsOneWidget);
+      await tester.ensureVisible(find.text('Nuevos (0)'));
+      await tester.tap(find.text('Nuevos (0)'));
+      await tester.pumpAndSettle();
       expect(find.text('No hay pedidos nuevos'), findsOneWidget);
 
       await tester.ensureVisible(find.text('Preparando (2)'));
@@ -107,22 +110,28 @@ void main() {
     testWidgets(
       'toma un pedido, lo retira, falla el PIN, lo entrega y queda en el historial',
       (tester) async {
-        await pumpPage(tester, const DeliveryHomePage(), seed: true);
+        final provider = await pumpPage(
+          tester,
+          const DeliveryHomePage(),
+          seed: true,
+        );
         await tester.pumpAndSettle(const Duration(seconds: 2));
 
         expect(find.text('Turno activo'), findsOneWidget);
         expect(find.text('3 pedidos disponibles'), findsOneWidget);
+        expect(provider.availableLimits, isNotEmpty);
+        expect(provider.availableLimits.every((limit) => limit == 50), isTrue);
 
         // Selecciona el primer pedido disponible y toma la ruta.
-        final card = find.textContaining('Retirar:').first;
+        final card = find.byKey(const ValueKey('available-order-0'));
         final mainList = find
             .descendant(
               of: find.byType(RefreshIndicator),
               matching: find.byType(Scrollable),
             )
             .first;
-        await tester.scrollUntilVisible(card, 250, scrollable: mainList);
-        await tester.drag(mainList, const Offset(0, -150));
+        final position = tester.state<ScrollableState>(mainList).position;
+        position.jumpTo(position.maxScrollExtent / 2);
         await tester.pumpAndSettle();
         await tester.tap(card);
         await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -131,6 +140,18 @@ void main() {
 
         // Asignado: primero se confirma el retiro en el local.
         expect(find.text('Entregar'), findsNothing);
+        await tester.tap(find.byTooltip('Soltar pedido').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Confirmar'));
+        await tester.pumpAndSettle();
+        expect(find.text('Motivo obligatorio'), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'No puedo continuar');
+        await tester.tap(find.widgetWithText(FilledButton, 'Confirmar'));
+        await _awaitSnackbar(tester);
+        expect(provider.problemStatus, 'release');
+        expect(provider.problemOrderId, isNotNull);
+        expect(provider.problemReason, 'No puedo continuar');
+        await _dismissSnackbar(tester);
         await tester.tap(find.text('Retirar').first);
         await tester.pumpAndSettle();
         expect(find.text('Confirmar retiro'), findsWidgets);
@@ -144,6 +165,16 @@ void main() {
           DemoBackend.instance.routes(),
         )).single;
         expect(route['status'], 'Retirado');
+        await tester.tap(find.byTooltip('Anular pedido').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Anular pedido retirado'), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'No se puede entregar');
+        await tester.tap(find.widgetWithText(FilledButton, 'Confirmar'));
+        await _awaitSnackbar(tester);
+        expect(provider.problemOrderId, route['orderId']);
+        expect(provider.problemReason, 'No se puede entregar');
+        expect(provider.problemStatus, 'Cancelado');
+        await _dismissSnackbar(tester);
         final order = await _settle(
           tester,
           DemoBackend.instance.orderDetail(route['orderId'] as Object),

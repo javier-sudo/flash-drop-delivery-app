@@ -13,6 +13,7 @@ import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/registered_address_resolver.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/delivery_order_sort.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
@@ -21,6 +22,7 @@ import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 enum _Mode { selecting, delivering }
 
 const int _kMax = 3;
+const int _kAvailablePerRestaurant = 50;
 const String _kActiveKey = 'driver_active_orders';
 
 // Los avisos inferiores quedan sobre la barra de navegación del repartidor.
@@ -50,15 +52,21 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   Worker? _availabilityWorker;
   final _coords = <String, LatLng>{};
   LatLng? _driverLocation;
+  bool _shareLocation = false;
+  bool _locating = false;
+  String? _locationError;
 
   List<Map<String, dynamic>> _availableOrders = [];
   List<Map<String, dynamic>> _ownRoutes = [];
   final _selectedIds = <int>{};
   final _claimedIds = <int>{};
+  final _busyOrders = <Object>{};
 
   _Mode _mode = _Mode.selecting;
   bool _loading = true;
   bool _claiming = false;
+  bool _availableLimitReached = false;
+  DeliveryOrderSort _orderSort = DeliveryOrderSort.newest;
   String? _error;
   Timer? _timer;
 
@@ -88,7 +96,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
 
   // Orders exposes this list specifically for couriers: ready to collect and
   // without a courier. Delivery routes are deliberately not used as a source.
-  List<Map<String, dynamic>> get _available => _availableOrders;
+  List<Map<String, dynamic>> get _available =>
+      sortDeliveryOrders(_availableOrders, _orderSort);
 
   // GET /delivery/routes already scopes the response to the authenticated courier.
   List<Map<String, dynamic>> get _active => _ownRoutes.where((r) {
@@ -124,7 +133,10 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           final restaurantId = int.tryParse('${restaurant['id'] ?? ''}');
           return restaurantId == null
               ? Future.value(<Map<String, dynamic>>[])
-              : _api.getAvailableDeliveryOrders(restaurantId: restaurantId);
+              : _api.getAvailableDeliveryOrders(
+                  restaurantId: restaurantId,
+                  limit: _kAvailablePerRestaurant,
+                );
         }),
       );
       final routes = await routesFuture;
@@ -156,6 +168,9 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       setState(() {
         _ownRoutes = routes;
         _availableOrders = availableOrders;
+        _availableLimitReached = availableByRestaurant.any(
+          (orders) => orders.length >= _kAvailablePerRestaurant,
+        );
         _selectedIds.removeWhere(
           (id) => !availableOrders.any((r) => r['orderId'] == id),
         );
@@ -167,6 +182,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           _box.write(_kActiveKey, stillActive.toList());
         } else {
           // All completed — return to selection
+          _shareLocation = false;
+          _locationError = null;
           _claimedIds.clear();
           _box.remove(_kActiveKey);
           _mode = _Mode.selecting;
@@ -208,15 +225,36 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
   }
 
   /// Ubicación real del repartidor. Si no da permiso, la ruta sigue usable.
-  Future<void> _refreshDriverLocation() async {
+  Future<void> _refreshDriverLocation({bool requestPermission = false}) async {
+    if (_locating ||
+        !mounted ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        !TickerMode.of(context)) {
+      return;
+    }
+    _locating = true;
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) return;
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (_shareLocation && mounted) {
+          setState(
+            () => _locationError = 'Activa el GPS para compartir tu ubicacion.',
+          );
+        }
+        return;
+      }
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && requestPermission) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        if (_shareLocation && mounted) {
+          setState(
+            () => _locationError =
+                'Autoriza la ubicacion en los ajustes del telefono.',
+          );
+        }
         return;
       }
       final position = await Geolocator.getCurrentPosition(
@@ -229,8 +267,34 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
       setState(() {
         _driverLocation = LatLng(position.latitude, position.longitude);
       });
+      if (_shareLocation &&
+          _active.isNotEmpty &&
+          mounted &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          TickerMode.of(context)) {
+        try {
+          await _api.reportCourierLocation(
+            position.latitude,
+            position.longitude,
+            position.timestamp,
+          );
+          if (mounted) setState(() => _locationError = null);
+        } catch (_) {
+          if (mounted) {
+            setState(() => _locationError = 'No se pudo enviar tu ubicacion.');
+          }
+        }
+      }
     } catch (_) {
-      // Sin GPS o sin plugin (tests): se muestra la ruta sin la moto.
+      if (_shareLocation && mounted) {
+        setState(
+          () => _locationError =
+              'No se pudo obtener el GPS. Revisa los permisos.',
+        );
+      }
+    } finally {
+      _locating = false;
     }
   }
 
@@ -385,6 +449,7 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     if (response.success != true) {
       final (title, details) = deliveryErrorMessage(response);
       _notify(title, details);
+      if (response.statusCode == 423) await _loadRoutes(silent: true);
       return;
     }
     _notify(
@@ -394,13 +459,107 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
     await _loadRoutes(silent: true);
   }
 
+  Future<void> _resolveProblem(Map<String, dynamic> route) async {
+    final orderId = route['orderId'];
+    if (orderId == null || _busyOrders.contains(orderId)) return;
+    final beforePickup = routeNeedsPickup(route);
+    String reason = '';
+    String status = 'Cancelado';
+    final result = await showDialog<(String, String)>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text(
+            beforePickup ? 'Soltar pedido' : 'Anular pedido retirado',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                beforePickup
+                    ? 'El pedido quedará disponible para otro repartidor.'
+                    : 'Esta acción cierra el pedido. Indica el motivo.',
+              ),
+              if (!beforePickup)
+                DropdownButton<String>(
+                  value: status,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Cancelado',
+                      child: Text('Cancelado'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Rechazado',
+                      child: Text('Rechazado'),
+                    ),
+                  ],
+                  onChanged: (v) => update(() => status = v ?? status),
+                ),
+              TextField(
+                onChanged: (value) => reason = value,
+                maxLength: 500,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Motivo obligatorio',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Volver'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final trimmedReason = reason.trim();
+                if (trimmedReason.isNotEmpty) {
+                  Navigator.pop(dialogContext, (trimmedReason, status));
+                }
+              },
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (_busyOrders.contains(orderId)) return;
+    setState(() => _busyOrders.add(orderId));
+    final response = await _call(
+      () => beforePickup
+          ? _api.releaseOrder(orderId, result.$1)
+          : _api.cancelAfterPickup(orderId, result.$1, result.$2),
+    );
+    if (!mounted) return;
+    setState(() => _busyOrders.remove(orderId));
+    if (response == null) return;
+    if (response.success == true) {
+      _notify(
+        beforePickup ? 'Pedido liberado' : 'Pedido anulado',
+        'La ruta se está actualizando.',
+      );
+      await _loadRoutes(silent: true);
+    } else {
+      _notify(
+        'No se pudo completar',
+        response.message ?? 'Actualiza la ruta e intenta nuevamente.',
+      );
+      if (response.statusCode == 409) await _loadRoutes(silent: true);
+    }
+  }
+
   /// Ejecuta una acción del repartidor; si no hay red avisa y devuelve null.
   Future<ResponseApi?> _call(Future<ResponseApi> Function() action) async {
     try {
       return await action();
     } catch (e) {
       debugPrint('Acción del repartidor falló: $e');
-      _notify('Sin conexión', 'No se pudo actualizar. Intenta nuevamente.');
+      _notify(
+        'Sin conexión',
+        'No pudimos confirmar el resultado. Actualiza la ruta antes de reintentar.',
+      );
       return null;
     }
   }
@@ -453,6 +612,49 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
           ),
         ),
         actions: [
+          if (_active.isNotEmpty)
+            IconButton(
+              tooltip: _shareLocation
+                  ? 'Dejar de compartir ubicacion'
+                  : 'Compartir ubicacion durante esta ruta',
+              onPressed: () async {
+                if (_shareLocation) {
+                  setState(() {
+                    _shareLocation = false;
+                    _locationError = null;
+                  });
+                  return;
+                }
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Compartir ubicacion'),
+                    content: const Text(
+                      'Se enviara tu ubicacion mientras esta pantalla este abierta y tengas una ruta activa.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Volver'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Compartir'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true && mounted) {
+                  setState(() => _shareLocation = true);
+                  await _refreshDriverLocation(requestPermission: true);
+                }
+              },
+              icon: Icon(
+                _shareLocation
+                    ? Icons.location_on
+                    : Icons.location_off_outlined,
+              ),
+            ),
           if (_mode == _Mode.selecting)
             IconButton(
               tooltip: 'Actualizar',
@@ -461,6 +663,14 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
             ),
         ],
       ),
+      bottomSheet: _locationError == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(_locationError!),
+              ),
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -501,6 +711,13 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
                 const _OfflineCard(),
                 const SizedBox(height: 14),
               ],
+              if (_availableLimitReached)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 14),
+                  child: Text(
+                    'Se muestran hasta 50 pedidos por local. Puede haber más pedidos disponibles.',
+                  ),
+                ),
               _DeliveryMap(
                 routes: mapRoutes,
                 coords: _coords,
@@ -574,18 +791,63 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
                 'Los pedidos tomados por otro repartidor desaparecen automáticamente.',
                 style: TextStyle(fontSize: 12, color: Color(0xFF9EA5AD)),
               ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<DeliveryOrderSort>(
+                value: _orderSort,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Ordenar por',
+                  prefixIcon: Icon(Icons.sort),
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final sort in DeliveryOrderSort.values)
+                    DropdownMenuItem(value: sort, child: Text(sort.label)),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _orderSort = value);
+                },
+              ),
+              if ((_orderSort == DeliveryOrderSort.newest ||
+                      _orderSort == DeliveryOrderSort.oldest) &&
+                  _availableOrders.isNotEmpty &&
+                  _availableOrders.any(
+                    (order) => deliveryOrderCreatedAt(order) == null,
+                  ))
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Orden aproximado por número de pedido.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              if (_orderSort.usesDistance &&
+                  _availableOrders.isNotEmpty &&
+                  _availableOrders.any(
+                    (order) => deliveryOrderDistance(order) == null,
+                  ))
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Los pedidos sin distancia disponible aparecen al final. La distancia corresponde a la ruta del pedido, no a tu ubicación.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
               const SizedBox(height: 12),
               if (_available.isEmpty)
                 const _EmptyRoutes()
               else
-                ..._available.map(
-                  (route) => _SelectableCard(
-                    route: route,
-                    selected: _selectedIds.contains(route['orderId'] as int),
+                ..._available.asMap().entries.map(
+                  (entry) => _SelectableCard(
+                    key: ValueKey('available-order-${entry.key}'),
+                    route: entry.value,
+                    selected: _selectedIds.contains(
+                      entry.value['orderId'] as int,
+                    ),
                     dimmed:
                         _selectedIds.length >= _kMax &&
-                        !_selectedIds.contains(route['orderId'] as int),
-                    onTap: () => _toggleRoute(route),
+                        !_selectedIds.contains(entry.value['orderId'] as int),
+                    onTap: () => _toggleRoute(entry.value),
                   ),
                 ),
             ],
@@ -629,6 +891,8 @@ class _DeliveryOrdersListPageState extends State<DeliveryOrdersListPage> {
             onNavigate: _navigate,
             onPickedUp: _markPickedUp,
             onDelivered: _markDelivered,
+            onProblem: _resolveProblem,
+            busyOrders: _busyOrders,
           ),
         ),
       ],
@@ -1072,6 +1336,7 @@ class _SelectableCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const _SelectableCard({
+    super.key,
     required this.route,
     required this.selected,
     required this.dimmed,
@@ -1227,15 +1492,21 @@ class _SelectableCard extends StatelessWidget {
                           color: Color(0xFF9EA5AD),
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          '${_routeNumber(route['distanceKm']).toStringAsFixed(1)} km',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF7B8189),
+                        Expanded(
+                          child: Text(
+                            deliveryOrderDistance(route) == null
+                                ? 'Sin distancia'
+                                : '${deliveryOrderDistance(route)!.toStringAsFixed(1)} km',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF7B8189),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
+                        Flexible(
                           child: Text(
                             total == null ? '' : _clp(total),
                             textAlign: TextAlign.end,
@@ -1340,12 +1611,16 @@ class _ActiveDeliveriesPanel extends StatelessWidget {
   final VoidCallback onNavigate;
   final Future<void> Function(Map<String, dynamic>) onPickedUp;
   final Future<void> Function(Map<String, dynamic>) onDelivered;
+  final Future<void> Function(Map<String, dynamic>) onProblem;
+  final Set<Object> busyOrders;
 
   const _ActiveDeliveriesPanel({
     required this.routes,
     required this.onNavigate,
     required this.onPickedUp,
     required this.onDelivered,
+    required this.onProblem,
+    required this.busyOrders,
   });
 
   @override
@@ -1449,6 +1724,8 @@ class _ActiveDeliveriesPanel extends StatelessWidget {
                 stopNumber: i + 1,
                 onPickedUp: () => onPickedUp(routes[i]),
                 onDelivered: () => onDelivered(routes[i]),
+                onProblem: () => onProblem(routes[i]),
+                busy: busyOrders.contains(routes[i]['orderId']),
               ),
             ),
           ),
@@ -1465,12 +1742,16 @@ class _ActiveOrderTile extends StatelessWidget {
   final int stopNumber;
   final VoidCallback onPickedUp;
   final VoidCallback onDelivered;
+  final VoidCallback onProblem;
+  final bool busy;
 
   const _ActiveOrderTile({
     required this.route,
     required this.stopNumber,
     required this.onPickedUp,
     required this.onDelivered,
+    required this.onProblem,
+    required this.busy,
   });
 
   @override
@@ -1531,7 +1812,7 @@ class _ActiveOrderTile extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           FilledButton(
-            onPressed: needsPickup ? onPickedUp : onDelivered,
+            onPressed: busy ? null : (needsPickup ? onPickedUp : onDelivered),
             style: FilledButton.styleFrom(
               backgroundColor: needsPickup
                   ? const Color(0xFF9A6500)
@@ -1549,6 +1830,11 @@ class _ActiveOrderTile extends StatelessWidget {
               needsPickup ? 'Retirar' : 'Entregar',
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
             ),
+          ),
+          IconButton(
+            tooltip: needsPickup ? 'Soltar pedido' : 'Anular pedido',
+            onPressed: busy ? null : onProblem,
+            icon: const Icon(Icons.more_vert),
           ),
         ],
       ),

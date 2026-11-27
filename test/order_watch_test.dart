@@ -178,6 +178,23 @@ void main() {
       expect(state!['statuses'], {'1': 'NUEVO_PEDIDO', '2': 'NUEVO_PEDIDO'});
     });
 
+    test('la asignacion de la tienda se conserva entre observadores', () async {
+      await service.observeStore([
+        order(78, 'Listo para retiro'),
+      ], notify: false);
+      var state = await store.readState('store');
+      expect(state!['assignments'], {'78': ''});
+      await service.observeStore([
+        {...order(78, 'Listo para retiro'), 'deliveryId': 12},
+      ]);
+      state = await store.readState('store');
+      expect(state!['assignments'], {'78': '12'});
+      await service.observeStore([
+        {...order(78, 'Listo para retiro'), 'deliveryId': 12},
+      ]);
+      expect(await store.readState('store'), state);
+    });
+
     test('el repartidor no disponible guarda lo visto sin avisar', () async {
       await service.observeCourier(
         routes: const [],

@@ -1,23 +1,32 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/profile_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/reviews_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/products_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/sales_summary_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/delete_account_page.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/response_api.dart';
 import 'package:proyecto_app_delivery_gessof/src/models/user.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/home/home_controller.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/store_settings_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/providers/app_provider.dart';
 import 'package:proyecto_app_delivery_gessof/src/pages/restaurant/store_delivery_coverage_page.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/local_notifications_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/services/order_watch_service.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/app_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/delivery_assignment.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/order_status.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/public_order_id.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/illustration.dart';
 
 /// Filtros del panel del local. Cada pedido cae en uno (salvo `all`).
 enum RestaurantTab {
   all('Todos'),
+  awaitingPayment('Sin pagar'),
   incoming('Nuevos'),
   preparing('Preparando'),
   ready('Listos'),
@@ -48,6 +57,12 @@ class RestaurantOrderStatus {
 
   factory RestaurantOrderStatus.of(String status) {
     final s = status.toLowerCase();
+    if (s == 'pendiente de pago') {
+      return const RestaurantOrderStatus._(
+        RestaurantTab.awaitingPayment,
+        Color(0xFF8A5700),
+      );
+    }
     if (s == 'cancelado' || s == 'rechazado') {
       return const RestaurantOrderStatus._(
         RestaurantTab.closed,
@@ -121,9 +136,10 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
   List<Map<String, dynamic>> orders = [];
   bool loading = true;
   String? errorMessage;
-  RestaurantTab tab = RestaurantTab.incoming;
+  RestaurantTab tab = RestaurantTab.all;
   final Set<Object> _updating = {};
   Timer? _refreshTimer;
+  Map<String, dynamic>? _store;
 
   User get currentUser {
     final raw = GetStorage().read('user');
@@ -140,10 +156,29 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
     _loadOrders();
     // Con "Recibiendo pedidos" activo, avisa también con la app cerrada.
     OrderWatchService.refresh();
-    _refreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _loadOrders(silent: true),
+    _loadStore();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _loadOrders(silent: true);
+      _loadStore();
+    });
+  }
+
+  Future<void> _loadStore() async {
+    try {
+      final store = await appProvider.getMyRestaurant();
+      if (mounted) setState(() => _store = store);
+    } catch (_) {
+      if (mounted) setState(() => _store = null);
+    }
+  }
+
+  Future<void> _openStoreSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StoreSettingsPage(provider: appProvider),
+      ),
     );
+    if (mounted) await _loadStore();
   }
 
   @override
@@ -193,6 +228,7 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
       orders.where((o) => '${o['status']}' == status).length;
 
   Future<void> _changeStatus(Object id, String status) async {
+    if (_updating.contains(id)) return;
     setState(() => _updating.add(id));
     final ResponseApi response;
     try {
@@ -223,6 +259,7 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
         response.message ?? 'Intenta nuevamente.',
         snackPosition: SnackPosition.BOTTOM,
       );
+      await _loadOrders(silent: true);
     }
   }
 
@@ -237,6 +274,50 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
         backgroundColor: AppColors.background,
         title: const Text('Pedidos del local'),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Gestión del local',
+            onSelected: (value) {
+              if (value == 'products') {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        RestaurantProductsPage(provider: appProvider),
+                  ),
+                );
+              } else if (value == 'sales') {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SalesSummaryPage(provider: appProvider),
+                  ),
+                );
+              } else if (value == 'availability') {
+                _openStoreSettings();
+              } else if (value == 'profile') {
+                Get.to(() => const AccountProfilePage());
+              } else if (value == 'reviews') {
+                Get.to(() => const ReviewsPage());
+              } else if (value == 'delete') {
+                Get.to(() => const DeleteAccountPage());
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'profile',
+                child: Text('Editar datos y foto'),
+              ),
+              PopupMenuItem(
+                value: 'reviews',
+                child: Text('Mis calificaciones'),
+              ),
+              PopupMenuItem(value: 'products', child: Text('Mis productos')),
+              PopupMenuItem(value: 'sales', child: Text('Ventas')),
+              PopupMenuItem(
+                value: 'availability',
+                child: Text('Disponibilidad y horarios'),
+              ),
+              PopupMenuItem(value: 'delete', child: Text('Eliminar mi cuenta')),
+            ],
+          ),
           IconButton(
             tooltip: 'Zona de despacho',
             onPressed: () => Get.to(() => const StoreDeliveryCoveragePage()),
@@ -276,7 +357,8 @@ class _RestaurantOrdersListPageState extends State<RestaurantOrdersListPage> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
         children: [
           _StoreHeader(
-            name: restaurantName,
+            name: _store?['name']?.toString() ?? restaurantName,
+            isOpen: _store?['open'] is bool ? _store!['open'] as bool : null,
             incoming: _count('Nuevo pedido'),
             cooking: _count('Preparando'),
             ready: _count('Listo para retiro'),
@@ -350,12 +432,14 @@ class _StoreHeader extends StatelessWidget {
   final int incoming;
   final int cooking;
   final int ready;
+  final bool? isOpen;
 
   const _StoreHeader({
     required this.name,
     required this.incoming,
     required this.cooking,
     required this.ready,
+    required this.isOpen,
   });
 
   @override
@@ -399,9 +483,16 @@ class _StoreHeader extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const Text(
-                      'Local abierto · recibiendo pedidos',
-                      style: TextStyle(color: Color(0xFFB8BEC6), fontSize: 13),
+                    Text(
+                      isOpen == null
+                          ? 'Disponibilidad no disponible'
+                          : isOpen!
+                          ? 'Local abierto · recibiendo pedidos'
+                          : 'Local cerrado',
+                      style: const TextStyle(
+                        color: Color(0xFFB8BEC6),
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -596,6 +687,14 @@ class _OrderCard extends StatelessWidget {
                 _InfoRow(label: 'Pago', value: '${order['paymentMethod']}'),
               if (itemsCount != null)
                 _InfoRow(label: 'Productos', value: '$itemsCount'),
+              if (meta.tab == RestaurantTab.ready ||
+                  meta.tab == RestaurantTab.inTransit)
+                _InfoRow(
+                  label: 'Repartidor',
+                  value: assignedCourierId(order) != null
+                      ? 'Asignado'
+                      : 'Sin asignar',
+                ),
               const Divider(height: 22, color: AppColors.line),
               Row(
                 children: [
@@ -739,6 +838,15 @@ class _OrderDetail extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (meta.tab == RestaurantTab.delivered &&
+              publicOrderId(order['id']) != null)
+            OutlinedButton.icon(
+              onPressed: () => Get.to(
+                () => ReviewsPage(orderId: publicOrderId(order['id'])),
+              ),
+              icon: const Icon(Icons.star_outline),
+              label: const Text('Calificar pedido'),
+            ),
           Center(
             child: Container(
               width: 42,
@@ -908,7 +1016,11 @@ class _OrderDetail extends StatelessWidget {
                 ),
               ),
             ),
-          if ('${order['status']}'.toLowerCase() == 'nuevo pedido')
+          if (const [
+            'nuevo pedido',
+            'preparando',
+            'listo para retiro',
+          ].contains('${order['status']}'.toLowerCase()))
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -1023,6 +1135,7 @@ class _EmptyOrders extends StatelessWidget {
     final text = switch (tab) {
       RestaurantTab.all => 'Este comercio aún no tiene pedidos',
       RestaurantTab.incoming => 'No hay pedidos nuevos',
+      RestaurantTab.awaitingPayment => 'No hay pagos pendientes',
       RestaurantTab.preparing => 'No hay pedidos en preparación',
       RestaurantTab.ready => 'No hay pedidos listos para retiro',
       RestaurantTab.inTransit => 'No hay pedidos en ruta',

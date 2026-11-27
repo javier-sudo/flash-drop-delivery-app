@@ -18,11 +18,11 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear perfil demo')),
+      appBar: AppBar(title: const Text('Crear cuenta')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
         children: [
-          Center(child: _imageUser(context)),
+          const Center(child: Icon(Icons.person_add_outlined, size: 64)),
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(20),
@@ -100,25 +100,6 @@ class _RegisterPageState extends State<RegisterPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _imageUser(BuildContext context) {
-    return GestureDetector(
-      onTap: () => con.showAlertDialog(context),
-      child: GetBuilder<RegisterController>(
-        builder: (c) {
-          final ImageProvider image = c.imagenFile != null
-              ? FileImage(c.imagenFile!)
-              : const AssetImage('assets/img/usuario2.0.png');
-
-          return CircleAvatar(
-            radius: 58,
-            backgroundColor: const Color(0xFFFFECB3),
-            backgroundImage: image,
-          );
-        },
       ),
     );
   }

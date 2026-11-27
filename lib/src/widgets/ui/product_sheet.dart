@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
+import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
 import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/app_image.dart';
@@ -25,6 +26,13 @@ Future<bool> addToCartWithConfirm(
   Map<String, dynamic> product, {
   int quantity = 1,
 }) async {
+  if (Get.isRegistered<CatalogController>() &&
+      Get.find<CatalogController>().restaurantOf(product)?.isOpen == false) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('El local está cerrado en este momento.')),
+    );
+    return false;
+  }
   final cart = Get.find<CartController>();
   if (cart.add(product, quantity: quantity) == AddResult.added) return true;
   final replace = await showDialog<bool>(
