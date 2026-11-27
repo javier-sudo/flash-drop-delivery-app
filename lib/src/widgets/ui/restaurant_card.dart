@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/catalog_controller.dart';
 import 'package:proyecto_app_delivery_gessof/src/theme/client_theme.dart';
-import 'package:proyecto_app_delivery_gessof/src/utils/format.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/app_image.dart';
 import 'package:proyecto_app_delivery_gessof/src/widgets/ui/common.dart';
 
@@ -10,7 +8,7 @@ import 'package:proyecto_app_delivery_gessof/src/widgets/ui/common.dart';
 String storeEta(RestaurantView r) =>
     r.deliveryTime != null ? '${r.deliveryTime} min' : '30 min';
 
-String get storeFee => clp(CartController.deliveryFee);
+String get storeFee => 'a cotizar';
 
 /// Tarjeta grande del carrusel "Comercios cerca de ti".
 class StoreCard extends StatelessWidget {
@@ -46,10 +44,12 @@ class StoreCard extends StatelessWidget {
                   fit: StackFit.expand,
                   children: [
                     AppImage(r.image, fallbackIcon: Icons.storefront),
-                    const Positioned(
+                    Positioned(
                       top: 10,
                       left: 10,
-                      child: TagPill('Restaurante'),
+                      child: TagPill(
+                        r.isOpen == false ? 'Cerrado' : 'Restaurante',
+                      ),
                     ),
                   ],
                 ),
@@ -154,7 +154,9 @@ class StoreRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${storeEta(r)} · Envío $storeFee',
+                  r.isOpen == false
+                      ? 'Cerrado'
+                      : '${storeEta(r)} · Envío $storeFee',
                   style: FD.text(12, weight: FontWeight.w600),
                 ),
               ],

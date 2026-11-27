@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/delete_account_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/profile_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/reviews_page.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/cart_controller.dart';
@@ -31,6 +35,16 @@ class _CatalogScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final catalog = Get.find<CatalogController>();
     return Obx(() {
+      if (catalog.needsAddress.value) {
+        return IllustratedMessage(
+          illustration: AppIllustration.emptyOrders,
+          title: 'Selecciona tu direccion',
+          message:
+              'Confirma el pin y la comuna para ver los comercios que entregan ahi.',
+          actionLabel: 'Elegir direccion',
+          onAction: () => Get.to(() => const AddressSelectorPage()),
+        );
+      }
       if (catalog.loading.value && catalog.restaurants.isEmpty) {
         return const Center(child: CircularProgressIndicator());
       }
@@ -41,6 +55,15 @@ class _CatalogScaffold extends StatelessWidget {
           message: 'Revisa tu conexión e intenta de nuevo.',
           actionLabel: 'Reintentar',
           onAction: catalog.load,
+        );
+      }
+      if (!catalog.loading.value && catalog.restaurants.isEmpty) {
+        return IllustratedMessage(
+          illustration: AppIllustration.emptyOrders,
+          title: 'Sin comercios con cobertura',
+          message: 'Todavia no hay comercios que entreguen en esta direccion.',
+          actionLabel: 'Cambiar direccion',
+          onAction: () => Get.to(() => const AddressSelectorPage()),
         );
       }
       return RefreshIndicator(onRefresh: catalog.load, child: builder(catalog));
@@ -94,7 +117,7 @@ class _DiscoveryTabState extends State<DiscoveryTab> {
                 () => _filter = c == null || c == _filter ? null : c,
               ),
             ),
-            const _FlashClubBanner(),
+            if (Environment.useDemoMode) const _FlashClubBanner(),
             SectionTitle(
               _filter == null
                   ? 'Comercios cerca de ti'
@@ -668,8 +691,29 @@ class _ResultsLabel extends StatelessWidget {
 
 // ─── Perfil ───────────────────────────────────────────────────────────────────
 
-class ProfileTab extends StatelessWidget {
+class ProfileTab extends StatefulWidget {
   const ProfileTab({super.key});
+
+  @override
+  State<ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
+  void Function()? _stopAddressListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _stopAddressListener = GetStorage().listenKey('delivery_address', (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _stopAddressListener?.call();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -729,6 +773,17 @@ class ProfileTab extends StatelessWidget {
           child: Column(
             children: [
               _ProfileRow(
+                label: 'Editar datos y foto',
+                onTap: () async {
+                  await Get.to(() => const AccountProfilePage());
+                  if (mounted) setState(() {});
+                },
+              ),
+              _ProfileRow(
+                label: 'Mis calificaciones',
+                onTap: () => Get.to(() => const ReviewsPage()),
+              ),
+              _ProfileRow(
                 label: 'Direcciones',
                 meta: address.isEmpty ? 'Agregar' : address,
                 onTap: () => Get.to(() => const AddressSelectorPage()),
@@ -740,6 +795,11 @@ class ProfileTab extends StatelessWidget {
               ),
               if (user.roles.length > 1)
                 _ProfileRow(label: 'Cambiar rol', onTap: home.changeRole),
+              _ProfileRow(
+                label: 'Eliminar mi cuenta',
+                danger: true,
+                onTap: () => Get.to(() => const DeleteAccountPage()),
+              ),
               _ProfileRow(
                 label: 'Cerrar sesión',
                 onTap: home.signOut,

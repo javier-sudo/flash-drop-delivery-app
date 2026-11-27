@@ -20,9 +20,9 @@ class HomeController extends GetxController {
 
   /// Cierra la sesión y borra lo que pertenece al usuario: tokens, rol, carrito,
   /// dirección de entrega, ruta activa y estados de pedidos vistos.
-  Future<void> signOut() async {
+  Future<void> signOut({bool forgetAddresses = false}) async {
     await OrderWatchService.stop();
-    await SessionManager.instance.clearSession();
+    await SessionManager.instance.clearSession(forgetAddresses: forgetAddresses);
     await LocalNotificationsService.instance.reset();
     if (Get.isRegistered<CartController>()) Get.find<CartController>().clear();
     Get.offNamedUntil('/', (route) => false);

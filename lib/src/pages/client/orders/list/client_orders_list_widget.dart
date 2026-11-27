@@ -272,11 +272,11 @@ class _ActiveOrderCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '${order['restaurantName'] ?? 'Comercio'}'
-                      '${minutes == null ? '' : ' · Llega aprox. en $minutes min'}',
+                      '${minutes == null || stage.isAwaitingPayment ? '' : ' · Llega aprox. en $minutes min'}',
                       style: FD.text(13.5, weight: FontWeight.w600),
                     ),
                     const SizedBox(height: 14),
-                    StageProgressBars(step: stage.step),
+                    if (!stage.isAwaitingPayment) StageProgressBars(step: stage.step),
                     const SizedBox(height: 12),
                     Row(
                       children: [

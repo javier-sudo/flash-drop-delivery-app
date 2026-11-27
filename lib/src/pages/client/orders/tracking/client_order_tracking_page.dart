@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'package:proyecto_app_delivery_gessof/src/environment/environment.dart';
+import 'package:proyecto_app_delivery_gessof/src/models/courier_position.dart';
 
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/reviews_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/client/orders/payment_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/public_order_id.dart';
 import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -40,6 +45,8 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   LatLng? _deliveryCoord;
   bool _geocoding = false;
   bool _geocoded = false;
+  CourierPosition? _courier;
+  bool _refreshing = false;
 
   @override
   void initState() {
@@ -55,6 +62,8 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   }
 
   Future<void> _loadOrder({bool silent = false}) async {
+    if (_refreshing || !mounted) return;
+    _refreshing = true;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -73,6 +82,8 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
         _order = detail;
         _loading = false;
       });
+      await _loadCourierLocation();
+      if (!mounted) return;
       _scheduleRefreshIfActive();
       if (!_geocoding) await _geocodeAddresses();
     } catch (_) {
@@ -83,7 +94,27 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
           _loading = false;
         });
       }
+    } finally {
+      _refreshing = false;
     }
+  }
+
+  Future<void> _loadCourierLocation() async {
+    final route = _order['route'];
+    // Orders currently omits routeId; never substitute the unrelated order ID.
+    final routeId = _order['routeId'] ?? (route is Map ? route['id'] : null);
+    CourierPosition? location;
+    if (routeId != null && !_stage.isClosed && !_stage.isAwaitingPayment) {
+      try {
+        location = CourierPosition.fromJson(
+          await _appProvider.routeLocation(routeId),
+          routeId: routeId,
+        );
+      } catch (_) {
+        // Missing, expired, or unavailable GPS must not hide the order itself.
+      }
+    }
+    if (mounted) setState(() => _courier = location);
   }
 
   void _scheduleRefreshIfActive() {
@@ -148,6 +179,7 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
   /// Pedidos con entrega segura (o que ya traen PIN) muestran el código.
   bool get _showsDeliveryCode =>
       !_stage.isClosed &&
+      !_stage.isAwaitingPayment &&
       ('${_order['receptionMode'] ?? _order['reception_mode'] ?? ''}'
                   .toUpperCase() ==
               'SEGURO' ||
@@ -239,7 +271,36 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 32),
       children: [
         _StatusHero(order: _order, stage: _stage),
-        if ('${_order['status']}'.toLowerCase() == 'nuevo pedido') ...[
+        if (_stage.isAwaitingPayment) ...[
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => Get.to(
+              () => OrderPaymentPage(
+                orderId: _orderId,
+                total: num.tryParse('${_order['total']}')?.toDouble(),
+              ),
+            ),
+            icon: const Icon(Icons.payment),
+            label: Text(
+              Environment.autoApproveTestPayments
+                  ? 'Continuar pedido de prueba'
+                  : 'Ir a pagar',
+            ),
+          ),
+        ],
+        if (_isDelivered && publicOrderId(_orderId) != null) ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () =>
+                Get.to(() => ReviewsPage(orderId: publicOrderId(_orderId))),
+            icon: const Icon(Icons.star_outline),
+            label: const Text('Calificar pedido'),
+          ),
+        ],
+        if ((_stage.isAwaitingPayment ||
+                '${_order['status']}'.toLowerCase() == 'nuevo pedido') &&
+            _order['deliveryPersonId'] == null &&
+            _order['deliveryUserId'] == null) ...[
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: _updating ? null : _cancelOrder,
@@ -252,13 +313,14 @@ class _ClientOrderTrackingPageState extends State<ClientOrderTrackingPage> {
           DeliveryCodePanel(order: _order),
         ],
         const SizedBox(height: 12),
-        if (!_stage.isClosed || _isDelivered)
+        if ((!_stage.isClosed && !_stage.isAwaitingPayment) || _isDelivered)
           _StepsCard(currentStep: _stage.step),
         const SizedBox(height: 12),
         _TrackingMap(
           pickupCoord: _pickupCoord,
           deliveryCoord: _deliveryCoord,
           resolving: !_geocoded,
+          courier: _courier,
         ),
         const SizedBox(height: 12),
         WhiteCard(
@@ -351,7 +413,7 @@ class _StatusHero extends StatelessWidget {
                     Text(stage.headline, style: FD.display(26)),
                     const SizedBox(height: 4),
                     Text(
-                      stage.message,
+                      '${order['cancelReasonMessage'] ?? stage.message}',
                       style: FD.text(
                         13.5,
                         weight: FontWeight.w600,
@@ -537,11 +599,13 @@ class _TrackingMap extends StatelessWidget {
   final LatLng? pickupCoord;
   final LatLng? deliveryCoord;
   final bool resolving;
+  final CourierPosition? courier;
 
   const _TrackingMap({
     required this.pickupCoord,
     required this.deliveryCoord,
     required this.resolving,
+    this.courier,
   });
 
   @override
@@ -577,6 +641,12 @@ class _TrackingMap extends StatelessWidget {
                 pickupLocation: pickupCoord,
                 deliveryLocation: deliveryCoord,
                 resolving: resolving,
+                currentLocation:
+                    courier != null &&
+                        DateTime.now().difference(courier!.recordedAt) <=
+                            const Duration(seconds: 30)
+                    ? courier!.coordinates
+                    : null,
               ),
             ),
           ),

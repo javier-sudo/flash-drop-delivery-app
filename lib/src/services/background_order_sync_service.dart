@@ -93,7 +93,7 @@ class BackgroundOrderSyncService {
         final id = int.tryParse('${restaurant['id'] ?? ''}');
         if (id == null) return Future.value(const <Map<String, dynamic>>[]);
         return _get(
-          '/api/orders/available-for-delivery?restaurant_id=$id&limit=5',
+          '/api/orders/available-for-delivery?restaurant_id=$id&limit=50',
         );
       }),
     );

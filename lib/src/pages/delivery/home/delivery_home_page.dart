@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/profile_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/reviews_page.dart';
+import 'package:proyecto_app_delivery_gessof/src/utils/public_order_id.dart';
+import 'package:proyecto_app_delivery_gessof/src/pages/account/delete_account_page.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:proyecto_app_delivery_gessof/src/controllers/driver_controller.dart';
@@ -38,7 +42,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
       body: IndexedStack(
         index: _tab,
         children: [
-          const DeliveryOrdersListPage(),
+          TickerMode(enabled: _tab == 0, child: const DeliveryOrdersListPage()),
           _HistoryTab(key: ValueKey(_historyVersion)),
           const _ProfileTab(),
         ],
@@ -237,6 +241,16 @@ class _HistoryTabState extends State<_HistoryTab> {
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
+                          if (publicOrderId(r['orderId']) != null)
+                            IconButton(
+                              tooltip: 'Calificar pedido',
+                              onPressed: () => Get.to(
+                                () => ReviewsPage(
+                                  orderId: publicOrderId(r['orderId']),
+                                ),
+                              ),
+                              icon: const Icon(Icons.star_outline),
+                            ),
                         ],
                       ),
                     ),
@@ -395,6 +409,22 @@ class _ProfileTab extends StatelessWidget {
                 label: 'Cambiar rol',
                 onTap: home.changeRole,
               ),
+            _DarkOption(
+              icon: Icons.manage_accounts_outlined,
+              label: 'Editar datos y foto',
+              onTap: () => Get.to(() => const AccountProfilePage()),
+            ),
+            _DarkOption(
+              icon: Icons.star_outline,
+              label: 'Mis calificaciones',
+              onTap: () => Get.to(() => const ReviewsPage()),
+            ),
+            _DarkOption(
+              icon: Icons.person_remove_outlined,
+              label: 'Eliminar mi cuenta',
+              onTap: () => Get.to(() => const DeleteAccountPage()),
+              danger: true,
+            ),
             _DarkOption(
               icon: Icons.logout,
               label: 'Cerrar sesión',

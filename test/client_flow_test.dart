@@ -12,9 +12,15 @@ import 'helpers/test_app.dart';
 void main() {
   setUpAll(initTestStorage);
 
-  setUp(() {
+  setUp(() async {
     Get.reset();
     Get.testMode = true;
+    await GetStorage().write('delivery_address', {
+      'address': 'Av. Providencia 2000, Providencia',
+      'lat': -33.45,
+      'lng': -70.66,
+      'commune': 'Providencia',
+    });
   });
 
   Future<FakeProvider> pumpClientHome(WidgetTester tester) async {
@@ -43,7 +49,7 @@ void main() {
     expect(find.text('Urban Burger'), findsWidgets);
     expect(find.text('Comercios cerca de ti'), findsOneWidget);
     expect(find.text('Hamburguesas'), findsWidgets);
-    expect(find.text('FLASH CLUB'), findsOneWidget);
+    expect(find.text('FLASH CLUB'), findsNothing);
     expect(find.text('Inicio'), findsOneWidget);
     expect(find.text('Perfil'), findsOneWidget);
   });
@@ -127,6 +133,57 @@ void main() {
     expect(find.text('Comercios cerca de ti'), findsOneWidget);
   });
 
+  testWidgets('sin dirección pide seleccionarla antes de mostrar el catálogo', (
+    tester,
+  ) async {
+    await GetStorage().remove('delivery_address');
+    await pumpClientHome(tester);
+    expect(find.text('Elegir direccion'), findsOneWidget);
+    expect(find.text('Urban Burger'), findsNothing);
+  });
+
+  testWidgets(
+    'cambiar a una dirección sin cobertura conserva el carrito y bloquea la compra',
+    (tester) async {
+      final provider = await pumpClientHome(tester);
+      await tester.ensureVisible(find.text('Urban Burger').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Urban Burger').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Burger doble'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Agregar al pedido'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ver carrito'));
+      await tester.pumpAndSettle();
+
+      provider.coveredRestaurantIds = {};
+      await GetStorage().write('delivery_address', {
+        'address': 'Direccion lejana 123',
+        'commune': 'Maipu',
+        'lat': -34.0,
+        'lng': -70.7,
+      });
+      await tester.pumpAndSettle();
+
+      final button = find.widgetWithText(
+        FilledButton,
+        'SIN COBERTURA PARA ESTA DIRECCION',
+      );
+      expect(button, findsOneWidget);
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
+      expect(Get.find<CartController>().count, 1);
+      expect(provider.lastOrderItems, isNull);
+      expect(Get.find<CatalogController>().products, isEmpty);
+
+      // Returning to discovery also offers a way to change the address.
+      await tester.tap(find.text('Inicio'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sin comercios con cobertura'), findsOneWidget);
+      expect(find.text('Cambiar direccion'), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'confirmar el pedido envía los ítems, vacía el carrito y abre Mis pedidos',
     (tester) async {
@@ -134,6 +191,7 @@ void main() {
         'address': 'Direccion anterior, Maipu',
         'lat': -33.5,
         'lng': -70.7,
+        'commune': 'Maipu',
       });
       final provider = await pumpClientHome(tester);
       await tester.ensureVisible(find.text('Urban Burger').first);
@@ -150,17 +208,8 @@ void main() {
       expect(find.text('Tu carrito'), findsOneWidget);
       expect(find.text('PIN obligatorio para la entrega'), findsOneWidget);
 
-      // Dirección demasiado corta: no debe enviar el pedido.
-      await tester.enterText(find.byType(TextField), 'abc');
-      await tester.tap(find.textContaining('PEDIR AHORA'));
-      await tester.pump();
-      expect(provider.lastOrderItems, isNull);
-      await tester.pumpAndSettle(const Duration(seconds: 4));
-
-      await tester.enterText(
-        find.byType(TextField),
-        'Av. Providencia 2000, Providencia',
-      );
+      // Address text is read-only: the selected pin and commune travel together.
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
       await tester.tap(find.textContaining('PEDIR AHORA'));
       // Geocoder (sin plugin en tests) + latencia demo + navegación.
       await tester.pumpAndSettle(const Duration(seconds: 6));
@@ -170,9 +219,12 @@ void main() {
       ]);
       expect(provider.lastReceptionMode, 'SEGURO');
       final savedAddress = GetStorage().read('delivery_address') as Map;
-      expect(savedAddress['address'], 'Av. Providencia 2000, Providencia');
-      expect(savedAddress['lat'], isNull);
-      expect(savedAddress['lng'], isNull);
+      expect(savedAddress['address'], 'Direccion anterior, Maipu');
+      expect(savedAddress['lat'], -33.5);
+      expect(savedAddress['lng'], -70.7);
+      expect(provider.lastLatitude, -33.5);
+      expect(provider.lastLongitude, -70.7);
+      expect(provider.lastCommune, 'Maipu');
       expect(Get.find<CartController>().count, 0);
       expect(find.text('Mis pedidos'), findsWidgets);
       expect(find.textContaining('Urban Burger'), findsWidgets);

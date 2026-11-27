@@ -10,6 +10,7 @@ Map<String, dynamic> order(
   String? restaurant,
   String? deliveryCode,
   String? receptionMode,
+  Object? deliveryId,
 }) => {
   'orderId': id,
   'status': status,
@@ -17,6 +18,7 @@ Map<String, dynamic> order(
   if (restaurant != null) 'restaurantName': restaurant,
   if (deliveryCode != null) 'deliveryCode': deliveryCode,
   if (receptionMode != null) 'receptionMode': receptionMode,
+  'deliveryId': deliveryId,
 };
 
 /// Simula guardar el estado en GetStorage (ida y vuelta por JSON).
@@ -383,6 +385,132 @@ void main() {
         expect(ready.cancel, contains(received.show.single.id));
       },
     );
+  });
+
+  group('tienda: asignacion de repartidor', () {
+    Map<String, dynamic> seed(List<Map<String, dynamic>> orders) =>
+        persist(OrderNotificationRules.store(null, orders));
+
+    test('avisa una vez aunque tomar el pedido no cambie su estado', () {
+      final ready = order(78, 'Listo para retiro', code: 'FD-78');
+      final assigned = {...ready, 'deliveryId': 12};
+      final batch = OrderNotificationRules.store(seed([ready]), [assigned]);
+      final notice = batch.show.single;
+      expect(notice.title, 'Repartidor asignado a FD-78');
+      expect(notice.alert, isTrue);
+      expect(notice.priority, NoticePriority.high);
+      expect(notice.route, '/restaurant/orders/list');
+      expect(notice.orderId, '78');
+      expect(notice.payload, isNot(contains('deliveryId')));
+      final repeated = OrderNotificationRules.store(persist(batch), [assigned]);
+      expect(repeated.show, isEmpty);
+      expect(repeated.state['assignments'], {'78': '12'});
+    });
+
+    test('primera consulta no avisa de asignaciones antiguas', () {
+      final batch = OrderNotificationRules.store(null, [
+        order(78, 'Listo para retiro', deliveryId: 12),
+      ]);
+      expect(batch.show, isEmpty);
+    });
+
+    test(
+      'actualizar desde un APK sin historial de asignaciones solo crea la base',
+      () {
+        final batch = OrderNotificationRules.store(
+          {
+            'statuses': {'78': 'Listo para retiro'},
+          },
+          [order(78, 'Listo para retiro', deliveryId: 12)],
+        );
+        expect(batch.show, isEmpty);
+        expect(batch.state['assignments'], {'78': '12'});
+      },
+    );
+
+    test(
+      'no anuncia asignaciones en pedidos terminados ni estados anteriores al retiro',
+      () {
+        for (final status in [
+          'Entregado',
+          'Cancelado',
+          'Rechazado',
+          'Preparando',
+          'Nuevo pedido',
+          'Pendiente de pago',
+        ]) {
+          final batch = OrderNotificationRules.store(
+            seed([order(78, 'Listo para retiro')]),
+            [order(78, status, deliveryId: 12)],
+          );
+          expect(
+            batch.show.where((n) => n.title.startsWith('Repartidor asignado')),
+            isEmpty,
+            reason: status,
+          );
+        }
+      },
+    );
+
+    test('soltar cancela el aviso y volver a tomar permite un nuevo aviso', () {
+      final ready = order(78, 'Listo para retiro');
+      final assigned = {...ready, 'deliveryId': 12};
+      final first = OrderNotificationRules.store(seed([ready]), [assigned]);
+      final released = OrderNotificationRules.store(persist(first), [ready]);
+      expect(released.show, isEmpty);
+      expect(released.cancel, contains(first.show.single.id));
+      final again = OrderNotificationRules.store(persist(released), [assigned]);
+      expect(again.show.single.id, first.show.single.id);
+      expect(again.show.single.alert, isTrue);
+    });
+
+    test(
+      'un cambio de repartidor asignado se anuncia sin duplicar el pedido',
+      () {
+        final batch = OrderNotificationRules.store(
+          seed([order(78, 'Listo para retiro', deliveryId: 12)]),
+          [order(78, 'Listo para retiro', deliveryId: 13)],
+        );
+        expect(batch.show, hasLength(1));
+        expect(batch.show.single.title, startsWith('Repartidor asignado'));
+      },
+    );
+
+    test(
+      'si el sondeo alcanza a verlo retirado igualmente detecta la toma',
+      () {
+        final batch = OrderNotificationRules.store(
+          seed([order(78, 'Listo para retiro')]),
+          [
+            order(
+              78,
+              'Retirado',
+              deliveryId: '00000000-0000-0000-0000-000000000012',
+            ),
+          ],
+        );
+        expect(batch.show.single.title, startsWith('Repartidor asignado'));
+      },
+    );
+
+    test('valores de asignacion vacios o nulos no generan avisos', () {
+      for (final raw in [
+        null,
+        '',
+        ' ',
+        0,
+        '0',
+        -1,
+        'null',
+        '00000000-0000-0000-0000-000000000000',
+      ]) {
+        final batch = OrderNotificationRules.store(
+          seed([order(78, 'Listo para retiro')]),
+          [order(78, 'Listo para retiro', deliveryId: raw)],
+        );
+        expect(batch.show, isEmpty, reason: '$raw');
+      }
+    });
   });
 
   group('cliente', () {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:proyecto_app_delivery_gessof/src/utils/delivery_assignment.dart';
 
 /// Canales de Android. Cada uno se puede silenciar por separado desde los
 /// ajustes del teléfono sin perder los demás.
@@ -210,7 +211,9 @@ class OrderNotificationRules {
   ) {
     final seeded = previous != null;
     final statuses = _stringMap(previous?['statuses']);
+    final assignments = _stringMap(previous?['assignments']);
     final next = <String, String>{};
+    final nextAssignments = <String, String>{};
     final show = <OrderNotice>[];
     final cancel = <int>[];
     var pendingPreparation = 0;
@@ -220,6 +223,8 @@ class OrderNotificationRules {
       final status = _status(order);
       if (id.isEmpty || status.isEmpty) continue;
       next[id] = status;
+      final courier = assignedCourierId(order) ?? '';
+      nextAssignments[id] = courier;
       final s = status.toLowerCase();
       final isNew = s.contains('nuevo');
       final isPreparing = s.contains('preparando');
@@ -233,6 +238,36 @@ class OrderNotificationRules {
           before.toLowerCase().contains('pago');
       final noticeId = _noticeId('store:$id');
       if (!seeded) continue;
+
+      // Tomar el pedido solo cambia deliveryId; el estado sigue listo para retiro.
+      // Sin historial de asignaciones (primera consulta o actualizacion del APK), no se avisa de pedidos viejos.
+      final courierNoticeId = _noticeId('store:$id:courier');
+      final beforeCourier = assignments[id];
+      final canBeAssigned =
+          (s.contains('listo') && s.contains('retiro')) || _isOnTheWay(status);
+      if (beforeCourier != null &&
+          before != null &&
+          !_isFinal(before) &&
+          courier.isNotEmpty &&
+          courier != beforeCourier &&
+          canBeAssigned) {
+        show.add(
+          OrderNotice(
+            id: courierNoticeId,
+            channel: NoticeChannel.newOrders,
+            priority: NoticePriority.high,
+            title: 'Repartidor asignado a ${_label(order)}',
+            body: 'Un repartidor tomo el pedido para retirarlo.',
+            route: _routeStore,
+            orderId: id,
+          ),
+        );
+      } else if (_isFinal(status) ||
+          (beforeCourier != null &&
+              beforeCourier.isNotEmpty &&
+              courier.isEmpty)) {
+        cancel.add(courierNoticeId);
+      }
 
       // F7 activates paid orders directly in Preparando, including orders
       // that were already seen while payment was still pending.
@@ -293,7 +328,11 @@ class OrderNotificationRules {
       }
     }
 
-    return NoticeBatch(show: show, cancel: cancel, state: {'statuses': next});
+    return NoticeBatch(
+      show: show,
+      cancel: cancel,
+      state: {'statuses': next, 'assignments': nextAssignments},
+    );
   }
 
   // ------------------------------------------------------------------ repartidor
